@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test — run before first teleport to verify everything is wired up.
+# Smoke test — run before first warphole to verify everything is wired up.
 #
 # Usage:
 #   ./smoke_test.sh            # local checks only (no VM needed)
@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-CONF="${HOME}/.claude/teleport.conf"
+CONF="${HOME}/.claude/warphole.conf"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REMOTE="${1:-}"
 
@@ -39,7 +39,7 @@ while IFS= read -r path; do
   if [[ -e "$path" ]]; then
     ok "  exists  $path"
   elif [[ "$path" == *CLAUDE.md ]]; then
-    # Optional — teleport skips missing paths, CLAUDE.md is created on first use
+    # Optional — warphole skips missing paths, CLAUDE.md is created on first use
     printf '  \033[33m~\033[0m  optional  %s\n' "$path"
   else
     fail "  missing $path"
@@ -55,12 +55,12 @@ echo "Config"
 if [[ -f "$CONF" ]]; then
   ok "$CONF exists"
   source "$CONF"
-  check "TELEPORT_AGENT set"    '[[ -n "${TELEPORT_AGENT:-}" ]]'
-  check "TELEPORT_PROVIDER set" '[[ -n "${TELEPORT_PROVIDER:-}" ]]'
-  check "provider adapter exists" "[[ -f '$DIR/providers/${TELEPORT_PROVIDER:-}.sh' ]]"
-  check "agent adapter exists"    "[[ -f '$DIR/agents/${TELEPORT_AGENT:-}.sh' ]]"
+  check "WARPHOLE_AGENT set"    '[[ -n "${WARPHOLE_AGENT:-}" ]]'
+  check "WARPHOLE_PROVIDER set" '[[ -n "${WARPHOLE_PROVIDER:-}" ]]'
+  check "provider adapter exists" "[[ -f '$DIR/providers/${WARPHOLE_PROVIDER:-}.sh' ]]"
+  check "agent adapter exists"    "[[ -f '$DIR/agents/${WARPHOLE_AGENT:-}.sh' ]]"
 else
-  fail "$CONF missing — run: teleport setup"
+  fail "$CONF missing — run: warphole setup"
 fi
 
 # ── remote: provider (opt-in) ─────────────────────────────────────────────────
@@ -70,7 +70,7 @@ if [[ "$REMOTE" == "--remote" ]]; then
 
   [[ -f "$CONF" ]] || { fail "config missing — skipping remote tests"; }
 
-  source "$DIR/providers/${TELEPORT_PROVIDER}.sh"
+  source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
 
   check "SSH reachable"        'provider_ssh "true"'
   check "tmux available"       'provider_ssh "tmux -V"'
@@ -79,11 +79,11 @@ if [[ "$REMOTE" == "--remote" ]]; then
 
   # Round-trip: write a temp file locally, sync it over, verify it landed.
   tmp=$(mktemp)
-  echo "teleport-smoke-$$" > "$tmp"
-  remote_path="/tmp/teleport-smoke-$$"
+  echo "warphole-smoke-$$" > "$tmp"
+  remote_path="/tmp/warphole-smoke-$$"
 
   check "rsync transfer" "provider_rsync $tmp $remote_path"
-  check "file arrived on remote" "provider_ssh 'grep -q teleport-smoke-$$ $remote_path'"
+  check "file arrived on remote" "provider_ssh 'grep -q warphole-smoke-$$ $remote_path'"
   provider_ssh "rm -f $remote_path" &>/dev/null || true
   rm -f "$tmp"
 fi

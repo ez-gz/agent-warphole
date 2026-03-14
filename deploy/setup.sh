@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# One-time Fly.io VM provisioning for claude-teleport.
+# One-time Fly.io VM provisioning for agent-warphole.
 #
-# Run this once. After it completes, `teleport setup` (or editing
-# ~/.claude/teleport.conf) is all you need for each new machine.
+# Run this once. After it completes, `warphole setup` (or editing
+# ~/.claude/warphole.conf) is all you need for each new machine.
 
 set -euo pipefail
 
-CONF="${HOME}/.claude/teleport.conf"
+CONF="${HOME}/.claude/warphole.conf"
 TOML="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fly.toml"
 
 # ── preflight ─────────────────────────────────────────────────────────────────
@@ -19,7 +19,7 @@ fly auth whoami &>/dev/null || { echo "Not logged in to Fly — run: fly auth lo
 # ── config ────────────────────────────────────────────────────────────────────
 
 echo ""
-echo "Claude Teleport — Fly.io Setup"
+echo "agent-warphole — Fly.io Setup"
 echo ""
 
 read -rp "  App name (must be globally unique): " APP
@@ -65,8 +65,8 @@ fly ssh console -a "$APP" -C "claude --version" \
 # ── write local config ────────────────────────────────────────────────────────
 
 cat > "$CONF" <<EOF
-TELEPORT_AGENT=claude
-TELEPORT_PROVIDER=fly
+WARPHOLE_AGENT=claude
+WARPHOLE_PROVIDER=fly
 FLY_APP=$APP
 EOF
 
@@ -75,5 +75,5 @@ echo "Done."
 echo "  Config → $CONF"
 echo ""
 echo "  Smoke test:  ./smoke_test.sh --remote"
-echo "  Teleport:    /teleport  (inside a Claude Code session)"
+echo "  Warphole:    /warphole  (inside a Claude Code session)"
 echo ""

@@ -58,6 +58,6 @@ provider_rsync() {
 provider_attach() {
   local session="$1"
   printf '\n  Live. Attach with:\n'
-  printf '  fly ssh console -a %s -C '"'"'tmux attach -t teleport-%s'"'"'\n\n' \
+  printf '  fly ssh console -a %s -C '"'"'tmux attach -t warphole-%s'"'"'\n\n' \
     "$FLY_APP" "$session"
 }

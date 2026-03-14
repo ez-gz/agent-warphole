@@ -1,13 +1,15 @@
-# claude-teleport
+# agent-warphole
 
-Teleport a live Claude Code session to a remote VM. Full conversation context moves with it. Local session ends.
+Warphole a live Claude Code session to a remote VM. Full conversation context moves with it. Local session ends.
+
+Anthropic's built-in `/teleport` only pulls web sessions *down* to local. This is the other direction — push any local session up to your own VM.
 
 ## Install
 
 ```bash
-git clone https://github.com/yourname/claude-teleport ~/.claude/teleport
-cp ~/.claude/teleport/skill/teleport.md ~/.claude/commands/teleport.md
-~/.claude/teleport/deploy/setup.sh   # provision fly.io VM, write config (~5 min, once)
+git clone https://github.com/yourname/agent-warphole ~/.claude/warphole
+cp ~/.claude/warphole/skill/warphole.md ~/.claude/commands/warphole.md
+~/.claude/warphole/deploy/setup.sh   # provision fly.io VM, write config (~5 min, once)
 ```
 
 Requires [flyctl](https://fly.io/docs/hands-on/install-flyctl/) + a Fly.io account.
@@ -17,19 +19,19 @@ Requires [flyctl](https://fly.io/docs/hands-on/install-flyctl/) + a Fly.io accou
 Inside any Claude Code session:
 
 ```
-/teleport
+/warphole
 ```
 
-Then attach to the remote: `fly ssh console -a <app> -C 'tmux attach -t teleport-<id>'`
+Then attach to the remote: `fly ssh console -a <app> -C 'tmux attach -t warphole-<id>'`
 
 ## Config
 
-`~/.claude/teleport.conf` — written by setup.
+`~/.claude/warphole.conf` — written by setup.
 
 ```bash
-TELEPORT_AGENT=claude     # or: codex
-TELEPORT_PROVIDER=fly
-FLY_APP=my-claude-vm
+WARPHOLE_AGENT=claude     # or: codex
+WARPHOLE_PROVIDER=fly
+FLY_APP=my-warphole-vm
 ```
 
 Verify setup: `./smoke_test.sh --remote`

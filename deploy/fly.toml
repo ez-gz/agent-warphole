@@ -1,4 +1,4 @@
-# Fly.io configuration for the claude-teleport VM.
+# Fly.io configuration for the agent-warphole VM.
 #
 # This machine stays always-on. Cost is ~$20-30/mo for a shared-cpu-2x
 # with 2GB RAM. Scale up cpu_kind to "performance" if claude feels slow.
@@ -6,7 +6,7 @@
 # The /root volume persists project files and claude session data across
 # VM restarts. Expand it with: fly volumes extend <vol-id> --size <gb>
 
-app            = "claude-teleport-vm"   # overwritten by setup.sh
+app            = "agent-warphole-vm"   # overwritten by setup.sh
 primary_region = "ord"
 
 [build]
