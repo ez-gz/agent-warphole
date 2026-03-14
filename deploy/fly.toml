@@ -1,0 +1,26 @@
+# Fly.io configuration for the claude-teleport VM.
+#
+# This machine stays always-on. Cost is ~$20-30/mo for a shared-cpu-2x
+# with 2GB RAM. Scale up cpu_kind to "performance" if claude feels slow.
+#
+# The /root volume persists project files and claude session data across
+# VM restarts. Expand it with: fly volumes extend <vol-id> --size <gb>
+
+app            = "claude-teleport-vm"   # overwritten by setup.sh
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[[mounts]]
+  source      = "home"
+  destination = "/root"
+  initial_size = "20gb"
+
+[vm]
+  memory   = "2gb"
+  cpu_kind = "shared"
+  cpus     = 2
+
+# No public services — access is via `fly ssh console` only.
+# Fly's wireguard mesh handles auth; no exposed ports needed.
