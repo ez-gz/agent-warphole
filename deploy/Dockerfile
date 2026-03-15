@@ -1,7 +1,5 @@
+# Build context: repo root (fly deploy run from repo root, not deploy/)
 # node:22-slim already has Node + npm + ca-certificates on Debian slim.
-# Saves ~300MB vs ubuntu:24.04 + NodeSource setup + nodejs apt install.
-# Use node:22-alpine for an even smaller image (~half the size) if claude-code
-# has no glibc dependencies — untested.
 FROM node:22-slim
 
 # tmux: persistent sessions that survive SSH disconnects
@@ -14,14 +12,24 @@ RUN apt-get update -q && \
     npm install -g @anthropic-ai/claude-code && \
     npm cache clean --force && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    echo 'PermitRootLogin yes'    >> /etc/ssh/sshd_config && \
+    echo 'PermitRootLogin yes'      >> /etc/ssh/sshd_config && \
     echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config && \
-    echo 'Port 2222'              >> /etc/ssh/sshd_config && \
+    echo 'Port 2222'                >> /etc/ssh/sshd_config && \
     useradd -m -s /bin/bash user
+
+# Bake the phone UI server into the image.
+# warphole go will rsync the latest version on top of this — the baked copy
+# just ensures the server is available at first boot before any warphole runs.
+COPY phone/ /opt/warphole/phone/
+
+# Phone server boot wrapper: sets HOME so Path.home() resolves /home/user/.claude
+RUN printf '%s\n' \
+  '#!/bin/sh' \
+  'HOME=/home/user exec python3 /opt/warphole/phone/controller.py --host 0.0.0.0 --port 8420' \
+  > /usr/local/bin/phone-start.sh && chmod +x /usr/local/bin/phone-start.sh
 
 WORKDIR /home/user
 
-# Inline the entrypoint without Docker heredocs so Fly/Depot parsing stays simple.
 RUN printf '%s\n' \
   '#!/bin/sh' \
   'set -e' \
@@ -45,6 +53,10 @@ RUN printf '%s\n' \
   'chown -R user:user /home/user/.ssh' \
   '' \
   '/usr/sbin/sshd' \
+  '' \
+  '# Start phone server in waiting mode — warphole go will restart it with session args' \
+  'tmux new-session -d -s warphole-phone /usr/local/bin/phone-start.sh 2>/dev/null || true' \
+  '' \
   'exec sleep infinity' \
   > /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh
 

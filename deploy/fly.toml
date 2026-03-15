@@ -1,22 +1,31 @@
 # Fly.io configuration for the agent-warphole VM.
 #
-# This machine stays always-on. Cost is ~$20-30/mo for a shared-cpu-2x
-# with 2GB RAM. Scale up cpu_kind to "performance" if claude feels slow.
+# Deploy from the repo root (not deploy/):
+#   fly deploy --config deploy/fly.toml
+# setup.sh handles this automatically.
 #
-# By default this runs without a mounted volume.
-# If you want Claude auth, session data, and synced project files to survive
-# machine replacement or restart, provision a `home` volume and add a mount.
+# Cost: ~$20-30/mo for shared-cpu-2x with 2gb RAM.
 
 app            = "your-app-name"   # replaced by setup.sh — do not edit manually
 primary_region = "ord"
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = "deploy/Dockerfile"   # relative to repo root (build context = repo root)
 
 [vm]
   memory   = "2gb"
   cpu_kind = "shared"
   cpus     = 2
 
-# No public services — access is via `fly ssh console` only.
-# Fly's wireguard mesh handles auth; no exposed ports needed.
+# Phone UI — served publicly at https://{app}.fly.dev
+# No auth yet. warphole go starts it pointed at the active session.
+# warphole suck puts it back to waiting mode.
+[http_service]
+  internal_port        = 8420
+  force_https          = true
+  auto_stop_machines   = false
+  auto_start_machines  = false
+  min_machines_running = 1
+
+# SSH — internal only, accessed via fly proxy by warphole.sh
+# fly proxy {port}:2222 -a {app}

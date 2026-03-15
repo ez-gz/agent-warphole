@@ -77,8 +77,8 @@ echo "Using SSH key: ${pubkey%% *} …"
 fly secrets set SSH_PUBKEY="$pubkey" -a "$APP" --stage
 
 echo "Deploying image (this builds and pushes — ~2 min first time)…"
-# Run from DEPLOY_DIR so Fly uses the deploy/ Dockerfile as the build context.
-(cd "$DEPLOY_DIR" && fly deploy --app "$APP" --config "$DEPLOY_TOML" --wait-timeout 120)
+# Run from REPO_DIR so the Docker build context includes phone/ (needed for COPY in Dockerfile).
+(cd "$REPO_DIR" && fly deploy --app "$APP" --config "$DEPLOY_TOML" --wait-timeout 120)
 rm -f "$DEPLOY_TOML"
 
 # ── authenticate claude on the remote ─────────────────────────────────────────

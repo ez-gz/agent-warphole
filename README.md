@@ -52,3 +52,62 @@ REMOTE_HOME=/home/user
 ```
 
 Verify setup: `./smoke_test.sh --remote`
+
+## Phone UI
+
+The phone UI runs co-located with Claude — on the remote VM when warpoled, or locally when running locally. It serves the conversation as a mobile-friendly chat view with markdown rendering and voice input.
+
+**Remote (warphole) access:**
+
+When you run `/warphole`, the phone server starts automatically on the remote VM. Access it via Fly's wireguard proxy:
+
+```bash
+fly proxy 8420:8420 -a my-warphole-vm
+# Then open: http://localhost:8420
+```
+
+**Local access:**
+
+```bash
+./phone_ui.sh                           # auto-detects a tmux pane running 'claude'
+./phone_ui.sh --session my-local-claude # explicit session
+./phone_ui.sh --host 0.0.0.0 --port 8420
+```
+
+The phone UI shows three views:
+- **Chat** — the Claude conversation, markdown-rendered with code blocks and syntax hints
+- **Term** — raw tmux terminal output
+- **Log** — warphole operation history (go, suck, list) with timestamps
+
+The hold-to-talk button uses browser speech recognition when available and fills the prompt box before send.
+
+## Workstream management
+
+```bash
+warphole list     # list all remote sessions for the current project
+warphole status   # check if the current project has a live remote session
+warphole log      # view audit log of go/suck/list operations
+warphole log -n 50            # last 50 entries
+warphole log --project myapp  # filter by project name
+```
+
+## Skills and MCP (cross-agent registry)
+
+Install once, available everywhere Claude Code runs (local + remote warphole sessions).
+
+```bash
+# Slash-command skills
+warphole skills install path/to/my-skill.md   # copies to ~/.claude/commands/
+warphole skills list
+warphole skills remove my-skill
+
+# MCP servers
+warphole mcp add my-server npx @my/mcp-server
+warphole mcp add filesystem uvx mcp-server-filesystem /home/user/projects
+warphole mcp list
+warphole mcp remove my-server
+```
+
+Skills are installed to `~/.claude/commands/`. MCP servers are written to `~/.claude/settings.json`. Both are synced to the remote VM on every `warphole go`.
+
+Registry persisted at `~/.claude/warphole-registry.json`.

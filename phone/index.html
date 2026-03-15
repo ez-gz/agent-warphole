@@ -1,0 +1,1210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Warp Dial</title>
+  <style>
+    :root {
+      --bg:         #0f1117;
+      --surface:    #1a1d26;
+      --surface-2:  #242836;
+      --surface-3:  #2e3347;
+      --border:     rgba(255,255,255,0.08);
+      --border-2:   rgba(255,255,255,0.13);
+      --text:       #e8eaf0;
+      --text-soft:  #8892a4;
+      --text-dim:   #505868;
+      --teal:       #0f9d84;
+      --teal-soft:  rgba(15, 157, 132, 0.14);
+      --teal-glow:  rgba(15, 157, 132, 0.5);
+      --amber:      #d47d1f;
+      --amber-soft: rgba(212, 125, 31, 0.14);
+      --rose:       #e05a4e;
+      --rose-soft:  rgba(224, 90, 78, 0.12);
+      --indigo:     #7c8fe8;
+      --indigo-soft:rgba(124, 143, 232, 0.12);
+      --mono:       "SFMono-Regular", "Cascadia Code", Menlo, monospace;
+      --sans:       -apple-system, "Helvetica Neue", sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Shell ── */
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      height: 100dvh;
+    }
+
+    /* ── Header ── */
+    .header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      padding-top: env(safe-area-inset-top);
+      height: calc(52px + env(safe-area-inset-top));
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: relative;
+      z-index: 10;
+    }
+
+    .project-info {
+      flex: 1 1 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .live-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--teal);
+      flex-shrink: 0;
+      box-shadow: 0 0 6px var(--teal-glow);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 4px var(--teal-glow); }
+      50%       { box-shadow: 0 0 10px var(--teal-glow); }
+    }
+
+    .live-dot.idle {
+      background: var(--text-dim);
+      box-shadow: none;
+      animation: none;
+    }
+
+    .project-label {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .project-name {
+      font-size: 0.88rem;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      letter-spacing: -0.01em;
+      line-height: 1.2;
+    }
+
+    .project-sub {
+      font-size: 0.68rem;
+      color: var(--text-soft);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+
+    .view-toggle {
+      display: flex;
+      background: var(--surface-2);
+      border-radius: 8px;
+      padding: 3px;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+
+    .view-tab {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--text-soft);
+      font: inherit;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 9px;
+      border-radius: 6px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.12s, color 0.12s;
+      white-space: nowrap;
+    }
+
+    .view-tab.active {
+      background: var(--surface);
+      color: var(--text);
+    }
+
+    .icon-btn {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--text-soft);
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .icon-btn:active { background: var(--surface-2); }
+
+    /* ── Read-only banner ── */
+    .readonly-banner {
+      flex: 0 0 auto;
+      background: var(--indigo-soft);
+      border-bottom: 1px solid rgba(124, 143, 232, 0.2);
+      padding: 8px 14px;
+      font-size: 0.78rem;
+      color: var(--indigo);
+      display: none;
+      align-items: center;
+      gap: 8px;
+      line-height: 1.4;
+    }
+
+    .readonly-banner.visible { display: flex; }
+
+    /* ── Content area ── */
+    .content {
+      flex: 1 1 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+      position: relative;
+    }
+
+    /* ── Scroll-to-bottom FAB ── */
+    .scroll-fab {
+      position: fixed;
+      bottom: calc(var(--controls-h, 200px) + 12px);
+      right: 14px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: var(--surface-3);
+      border: 1px solid var(--border-2);
+      color: var(--text-soft);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+      -webkit-tap-highlight-color: transparent;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+
+    .scroll-fab.visible { opacity: 1; pointer-events: auto; }
+
+    /* ── Terminal view ── */
+    .terminal {
+      min-height: 100%;
+      padding: 14px 16px 20px;
+      font-family: var(--mono);
+      font-size: 0.79rem;
+      line-height: 1.58;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: #c8d0e0;
+    }
+
+    /* ── Chat view ── */
+    .chat {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px 12px 24px;
+      min-height: 100%;
+    }
+
+    .msg {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .msg.user     { align-self: flex-end;  max-width: 88%; }
+    .msg.assistant { align-self: flex-start; max-width: 100%; }
+
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 16px;
+      font-size: 0.88rem;
+      line-height: 1.56;
+      word-break: break-word;
+      position: relative;
+    }
+
+    .msg.user .bubble {
+      background: var(--teal-soft);
+      border: 1px solid rgba(15, 157, 132, 0.18);
+      border-bottom-right-radius: 4px;
+      color: var(--text);
+      white-space: pre-wrap;
+    }
+
+    .msg.assistant .bubble {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+      color: var(--text);
+    }
+
+    /* ── Markdown styles inside bubbles ── */
+    .bubble p           { margin: 0 0 0.6em; }
+    .bubble p:last-child { margin-bottom: 0; }
+    .bubble br          { display: block; content: ''; margin: 0.3em 0; }
+    .bubble h1, .bubble h2, .bubble h3 {
+      font-weight: 700;
+      margin: 0.8em 0 0.3em;
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+    }
+    .bubble h1 { font-size: 1.1em; }
+    .bubble h2 { font-size: 1em; }
+    .bubble h3 { font-size: 0.95em; }
+    .bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child { margin-top: 0; }
+    .bubble strong { font-weight: 700; }
+    .bubble em     { font-style: italic; }
+    .bubble ul, .bubble ol { padding-left: 1.4em; margin: 0.4em 0; }
+    .bubble li     { margin: 0.15em 0; }
+    .bubble hr     { border: 0; border-top: 1px solid var(--border-2); margin: 0.8em 0; }
+    .bubble blockquote {
+      border-left: 3px solid var(--border-2);
+      padding-left: 0.8em;
+      color: var(--text-soft);
+      margin: 0.5em 0;
+    }
+    .bubble code {
+      font-family: var(--mono);
+      font-size: 0.85em;
+      background: rgba(255,255,255,0.07);
+      padding: 1px 5px;
+      border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .code-block-wrap {
+      position: relative;
+      margin: 0.6em 0;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #131720;
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+    .code-block-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .code-lang {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--text-soft);
+      text-transform: lowercase;
+      letter-spacing: 0.04em;
+    }
+    .copy-code-btn {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--text-soft);
+      font: inherit;
+      font-size: 0.68rem;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .copy-code-btn:active { background: rgba(255,255,255,0.08); }
+    .bubble pre {
+      margin: 0;
+      padding: 12px 14px;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.55;
+      white-space: pre;
+      color: #c8d0e0;
+      -webkit-overflow-scrolling: touch;
+    }
+    .bubble pre::-webkit-scrollbar { height: 4px; }
+    .bubble pre::-webkit-scrollbar-track { background: transparent; }
+    .bubble pre::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+    /* No double wrap inside code-block-wrap */
+    .code-block-wrap + .bubble pre { margin: 0; padding: 0; }
+
+    .tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 2px 3px 0;
+    }
+
+    .tool-pill {
+      font-size: 0.66rem;
+      font-family: var(--mono);
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      letter-spacing: 0.02em;
+    }
+
+    .msg-time {
+      font-size: 0.62rem;
+      color: var(--text-dim);
+      padding: 0 3px;
+    }
+
+    .msg.user .msg-time  { text-align: right; }
+
+    .chat-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--text-soft);
+      font-size: 0.88rem;
+      text-align: center;
+      line-height: 1.6;
+      padding: 40px 20px;
+    }
+
+    .chat-empty .icon-large {
+      font-size: 2rem;
+      opacity: 0.4;
+    }
+
+    /* ── Log/history view ── */
+    .log-view {
+      padding: 14px 12px 24px;
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .log-section-title {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      padding: 4px 2px;
+    }
+
+    .log-entry {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .log-entry-top {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .log-op-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+    }
+
+    .log-op-badge.go   { background: var(--teal-soft);   color: var(--teal);  }
+    .log-op-badge.suck { background: var(--amber-soft);  color: var(--amber); }
+    .log-op-badge.list, .log-op-badge.status { background: var(--indigo-soft); color: var(--indigo); }
+    .log-op-badge.error { background: var(--rose-soft);  color: var(--rose); }
+
+    .log-project {
+      font-size: 0.82rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .log-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .log-token {
+      font-size: 0.7rem;
+      color: var(--text-soft);
+      font-family: var(--mono);
+    }
+
+    .log-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--text-soft);
+      font-size: 0.88rem;
+      text-align: center;
+      padding: 40px 20px;
+    }
+
+    /* ── Error banner ── */
+    .error-banner {
+      position: fixed;
+      top: calc(58px + env(safe-area-inset-top));
+      left: 12px;
+      right: 12px;
+      z-index: 200;
+      background: rgba(224, 90, 78, 0.12);
+      border: 1px solid rgba(224, 90, 78, 0.3);
+      color: #ff8b82;
+      border-radius: 12px;
+      padding: 10px 14px;
+      font-size: 0.82rem;
+      line-height: 1.4;
+      display: none;
+    }
+
+    .error-banner.visible { display: block; }
+
+    /* ── Controls ── */
+    .controls {
+      flex: 0 0 auto;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding-bottom: max(14px, env(safe-area-inset-bottom));
+    }
+
+    .quick-keys {
+      display: flex;
+      gap: 5px;
+      padding: 8px 12px 4px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .quick-keys::-webkit-scrollbar { display: none; }
+
+    .key-btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      border-radius: 7px;
+      padding: 5px 11px;
+      font-family: var(--mono);
+      font-size: 0.73rem;
+      font-weight: 600;
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-height: 30px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .key-btn:active { opacity: 0.5; }
+    .key-btn.warn { color: var(--rose); border-color: rgba(224, 90, 78, 0.22); }
+
+    .status-bar {
+      padding: 2px 14px 1px;
+      font-size: 0.73rem;
+      color: var(--text-soft);
+      min-height: 17px;
+    }
+
+    .status-bar.error { color: var(--rose); }
+
+    .composer-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 2px 12px 7px;
+    }
+
+    .composer {
+      flex: 1 1 0;
+      min-height: 40px;
+      max-height: 130px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 10px 14px;
+      background: var(--surface-2);
+      color: var(--text);
+      font: inherit;
+      font-size: 1rem;
+      line-height: 1.4;
+      resize: none;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    .composer:focus { border-color: rgba(15, 157, 132, 0.4); }
+    .composer::placeholder { color: var(--text-soft); }
+
+    .send-btn {
+      appearance: none;
+      border: 0;
+      background: var(--teal);
+      color: #fff;
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .send-btn:active { opacity: 0.75; }
+
+    .voice-row { padding: 0 12px 3px; }
+
+    .mic-btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      width: 100%;
+      min-height: 48px;
+      border-radius: 13px;
+      background: var(--surface-2);
+      color: var(--text-soft);
+      font: inherit;
+      font-size: 0.86rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      transition: background 0.12s, border-color 0.12s, color 0.12s;
+    }
+
+    .mic-btn.live {
+      background: var(--teal-soft);
+      border-color: rgba(15, 157, 132, 0.35);
+      color: var(--teal);
+    }
+
+    .mic-btn:disabled { opacity: 0.3; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <header class="header">
+    <div class="project-info">
+      <div class="live-dot idle" id="liveDot"></div>
+      <div class="project-label">
+        <span class="project-name" id="projectName">Connecting…</span>
+        <span class="project-sub"  id="projectSub"></span>
+      </div>
+    </div>
+    <div class="view-toggle">
+      <button class="view-tab active" data-view="chat">Chat</button>
+      <button class="view-tab"        data-view="terminal">Term</button>
+      <button class="view-tab"        data-view="log">Log</button>
+    </div>
+    <button class="icon-btn" id="refreshBtn" aria-label="Refresh">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+      </svg>
+    </button>
+  </header>
+
+  <div class="readonly-banner" id="readonlyBanner">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    Read-only — start with <code style="background:rgba(255,255,255,0.08);padding:1px 5px;border-radius:3px">./phone_ui.sh --session &lt;tmux-name&gt;</code> to enable input.
+  </div>
+
+  <div class="content" id="content">
+    <div class="chat"    id="chatView">
+      <div class="chat-empty"><div class="icon-large">⊙</div>Loading conversation…</div>
+    </div>
+    <pre class="terminal" id="termView" style="display:none">Loading…</pre>
+    <div class="log-view" id="logView" style="display:none">
+      <div class="log-empty">No warphole operations recorded yet.</div>
+    </div>
+  </div>
+
+  <button class="scroll-fab" id="scrollFab" aria-label="Scroll to bottom">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="6 9 12 15 18 9"/>
+    </svg>
+  </button>
+
+  <div class="error-banner" id="errorBanner"></div>
+
+  <div class="controls" id="controls">
+    <div class="quick-keys">
+      <button class="key-btn warn" data-key="C-c">ctrl-c</button>
+      <button class="key-btn" data-key="Escape">esc</button>
+      <button class="key-btn" data-key="Tab">tab</button>
+      <button class="key-btn" data-key="Up">↑</button>
+      <button class="key-btn" data-key="Down">↓</button>
+      <button class="key-btn" data-key="Left">←</button>
+      <button class="key-btn" data-key="Right">→</button>
+      <button class="key-btn" data-key="BSpace">⌫</button>
+      <button class="key-btn" data-key="Enter">↩</button>
+    </div>
+
+    <div class="status-bar" id="statusBar" aria-live="polite"></div>
+
+    <div class="composer-row">
+      <textarea class="composer" id="composer" placeholder="Message…" rows="1"
+        enterkeyhint="send" autocorrect="on" autocapitalize="sentences" spellcheck="true"></textarea>
+      <button class="send-btn" id="sendBtn" aria-label="Send">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="voice-row">
+      <button class="mic-btn" id="micBtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8"  y1="23" x2="16" y2="23"/>
+        </svg>
+        <span id="micLabel">Hold to talk</span>
+      </button>
+    </div>
+  </div>
+
+</div>
+<script>
+'use strict';
+
+// ── Markdown renderer ───────────────────────────────────────────────────────
+// No external deps. Handles the subset Claude actually uses:
+// fenced code blocks, inline code, bold, italic, headings, lists,
+// blockquotes, horizontal rules.
+
+const MARK = '\x02', MEND = '\x03';  // safe delimiters for HTML segments
+
+function esc(t) {
+  return String(t)
+    .replaceAll('&','&amp;').replaceAll('<','&lt;')
+    .replaceAll('>','&gt;').replaceAll('"','&quot;');
+}
+
+// Process inline markdown. Produces HTML. Escapes raw text portions.
+function inlineMd(raw) {
+  let s = raw;
+  // Inline code first (content is escaped, surrounding markers protect it)
+  s = s.replace(/`([^`\n]+)`/g, (_, c) =>
+    `${MARK}<code>${esc(c)}</code>${MEND}`);
+  // Bold
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, (_, c) =>
+    `${MARK}<strong>${esc(c)}</strong>${MEND}`);
+  s = s.replace(/__([^_\n]+)__/g, (_, c) =>
+    `${MARK}<strong>${esc(c)}</strong>${MEND}`);
+  // Italic
+  s = s.replace(/\*([^*\n\s][^*\n]*)\*/g, (_, c) =>
+    `${MARK}<em>${esc(c)}</em>${MEND}`);
+  s = s.replace(/_([^_\n\s][^_\n]*)_/g, (_, c) =>
+    `${MARK}<em>${esc(c)}</em>${MEND}`);
+  // Escape the non-HTML segments, leave HTML segments alone
+  return s.split(/(\x02[\s\S]*?\x03)/).map(seg =>
+    seg.startsWith(MARK) ? seg.slice(1, -1) : esc(seg)
+  ).join('');
+}
+
+// Full block-level markdown → HTML
+function mdToHtml(raw) {
+  // 1. Extract fenced code blocks, replace with placeholders
+  const blocks = [];
+  let s = raw.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const i = blocks.length;
+    const langHtml = lang ? `<span class="code-lang">${esc(lang)}</span>` : '';
+    const copyBtn  = `<button class="copy-code-btn" data-code="${esc(code.trimEnd())}">copy</button>`;
+    blocks.push(
+      `<div class="code-block-wrap">` +
+        `<div class="code-block-header">${langHtml}${copyBtn}</div>` +
+        `<pre><code>${esc(code.trimEnd())}</code></pre>` +
+      `</div>`
+    );
+    return `\x00BLK${i}\x00`;
+  });
+
+  // 2. Process line by line
+  const lines  = s.split('\n');
+  const out    = [];
+  const lists  = []; // stack: 'ul' | 'ol'
+
+  const closeLists = () => {
+    while (lists.length) out.push(`</${lists.pop()}>`);
+  };
+  const openList = type => {
+    if (lists.at(-1) !== type) {
+      if (lists.length) out.push(`</${lists.pop()}>`);
+      out.push(`<${type}>`);
+      lists.push(type);
+    }
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Code block placeholder
+    if (line.includes('\x00BLK')) {
+      closeLists();
+      out.push(line.replace(/\x00BLK(\d+)\x00/g, (_, n) => blocks[n]));
+      continue;
+    }
+
+    // Heading
+    const hm = line.match(/^(#{1,3}) (.+)/);
+    if (hm) {
+      closeLists();
+      const lv = hm[1].length;
+      out.push(`<h${lv}>${inlineMd(hm[2])}</h${lv}>`);
+      continue;
+    }
+
+    // HR
+    if (/^---+\s*$/.test(line)) {
+      closeLists();
+      out.push('<hr>');
+      continue;
+    }
+
+    // Blockquote
+    const bq = line.match(/^> ?(.*)/);
+    if (bq) {
+      closeLists();
+      out.push(`<blockquote>${inlineMd(bq[1])}</blockquote>`);
+      continue;
+    }
+
+    // Unordered list
+    const ul = line.match(/^[-*] (.+)/);
+    if (ul) {
+      openList('ul');
+      out.push(`<li>${inlineMd(ul[1])}</li>`);
+      continue;
+    }
+
+    // Ordered list
+    const ol = line.match(/^\d+\. (.+)/);
+    if (ol) {
+      openList('ol');
+      out.push(`<li>${inlineMd(ol[1])}</li>`);
+      continue;
+    }
+
+    // Blank line
+    if (line.trim() === '') {
+      // Keep list open if next line continues it
+      const next = lines[i + 1] || '';
+      if (!next.match(/^[-*\d]/) && !next.match(/^\d+\./)) {
+        closeLists();
+      }
+      out.push('<br>');
+      continue;
+    }
+
+    // Regular paragraph
+    closeLists();
+    out.push(`<p>${inlineMd(line)}</p>`);
+  }
+
+  closeLists();
+  return out.join('');
+}
+
+// ── Time helpers ──────────────────────────────────────────────────────────────
+function relTime(isoStr) {
+  if (!isoStr) return '';
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m <   1) return 'just now';
+  if (m <  60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h <  24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function absTime(isoStr) {
+  if (!isoStr) return '';
+  return new Date(isoStr).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+const SpeechCtor = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+const state = {
+  view:          'chat',
+  hasSession:    false,
+  recognition:   null,
+  recording:     false,
+  voiceBase:     '',
+  voiceFinal:    [],
+  voiceInterim:  '',
+  timer:         null,
+};
+
+const el = {
+  liveDot:        document.getElementById('liveDot'),
+  projectName:    document.getElementById('projectName'),
+  projectSub:     document.getElementById('projectSub'),
+  refreshBtn:     document.getElementById('refreshBtn'),
+  readonlyBanner: document.getElementById('readonlyBanner'),
+  content:        document.getElementById('content'),
+  chatView:       document.getElementById('chatView'),
+  termView:       document.getElementById('termView'),
+  logView:        document.getElementById('logView'),
+  scrollFab:      document.getElementById('scrollFab'),
+  errorBanner:    document.getElementById('errorBanner'),
+  controls:       document.getElementById('controls'),
+  statusBar:      document.getElementById('statusBar'),
+  composer:       document.getElementById('composer'),
+  sendBtn:        document.getElementById('sendBtn'),
+  micBtn:         document.getElementById('micBtn'),
+  micLabel:       document.getElementById('micLabel'),
+};
+
+// ── Utils ─────────────────────────────────────────────────────────────────────
+function setStatus(msg, isError = false) {
+  el.statusBar.textContent = msg || '';
+  el.statusBar.className = 'status-bar' + (isError ? ' error' : '');
+}
+
+function showError(msg) {
+  if (!msg) { el.errorBanner.classList.remove('visible'); return; }
+  el.errorBanner.textContent = msg;
+  el.errorBanner.classList.add('visible');
+  setTimeout(() => el.errorBanner.classList.remove('visible'), 6000);
+}
+
+function autoResize() {
+  el.composer.style.height = 'auto';
+  el.composer.style.height = Math.min(el.composer.scrollHeight, 130) + 'px';
+}
+
+function nearBottom(threshold = 80) {
+  const c = el.content;
+  return c.scrollHeight - c.scrollTop - c.clientHeight < threshold;
+}
+
+function scrollToBottom() {
+  el.content.scrollTop = el.content.scrollHeight;
+}
+
+function updateScrollFab() {
+  el.scrollFab.classList.toggle('visible', !nearBottom(120));
+  // Tell FAB where controls end
+  el.scrollFab.style.setProperty('--controls-h', el.controls.offsetHeight + 'px');
+}
+
+function api(path, opts = {}) {
+  return fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts })
+    .then(async r => {
+      if (!r.ok) throw new Error(await r.text() || r.statusText);
+      const ct = r.headers.get('content-type') || '';
+      return ct.includes('json') ? r.json() : r.text();
+    });
+}
+
+// ── ChatRenderer ──────────────────────────────────────────────────────────────
+// Self-contained. Input: [{role, text, tools, timestamp}]. Output: DOM.
+function renderChat(container, messages) {
+  const visible = messages.filter(m => m.text || m.tools?.length);
+
+  if (!visible.length) {
+    container.innerHTML =
+      `<div class="chat-empty"><div class="icon-large">⊙</div>No messages yet.</div>`;
+    return;
+  }
+
+  const wasNear = nearBottom();
+
+  container.innerHTML = visible.map(m => {
+    const bubbleHtml = m.text
+      ? `<div class="bubble">${m.role === 'assistant' ? mdToHtml(m.text) : esc(m.text)}</div>`
+      : '';
+    const toolsHtml = m.tools?.length
+      ? `<div class="tools">${m.tools.map(t => `<span class="tool-pill">⚙ ${esc(t)}</span>`).join('')}</div>`
+      : '';
+    const timeHtml = m.timestamp
+      ? `<div class="msg-time">${absTime(m.timestamp)}</div>`
+      : '';
+    return `<div class="msg ${esc(m.role)}">${bubbleHtml}${toolsHtml}${timeHtml}</div>`;
+  }).join('');
+
+  // Wire up copy buttons on code blocks
+  container.querySelectorAll('.copy-code-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const code = btn.dataset.code || '';
+      navigator.clipboard?.writeText(code)
+        .then(() => { btn.textContent = 'copied!'; setTimeout(() => btn.textContent = 'copy', 1500); })
+        .catch(() => setStatus('Clipboard unavailable.', true));
+    });
+  });
+
+  if (wasNear) scrollToBottom();
+}
+
+// ── Log renderer ──────────────────────────────────────────────────────────────
+function renderLog(container, entries) {
+  if (!entries.length) {
+    container.innerHTML = `<div class="log-empty">No warphole operations yet.<br>Run <code>/warphole</code> or <code>/warphole suck</code> first.</div>`;
+    return;
+  }
+
+  // Group by date (use e.ts which is the audit log field name)
+  const byDate = {};
+  entries.forEach(e => {
+    const ts = e.ts || e.timestamp || '';
+    const d  = ts ? new Date(ts).toLocaleDateString([], {weekday:'short',month:'short',day:'numeric'}) : 'Unknown';
+    (byDate[d] = byDate[d] || []).push(e);
+  });
+
+  container.innerHTML = Object.entries(byDate).reverse().map(([date, group]) => {
+    const rows = group.slice().reverse().map(e => {
+      const ts    = e.ts || e.timestamp || '';
+      const op    = e.op || 'unknown';
+      const proj  = (e.project || '').split('/').pop() || e.project || '—';
+      const badge = e.ok === false ? 'error' : op;
+      const remote = e.remote || '';
+      const session = e.session ? e.session.slice(-8) : '';
+      const when  = ts ? relTime(ts) : '';
+      return `
+        <div class="log-entry">
+          <div class="log-entry-top">
+            <span class="log-op-badge ${esc(badge)}">${esc(op)}</span>
+            <span class="log-project">${esc(proj)}</span>
+          </div>
+          <div class="log-meta">
+            ${when    ? `<span class="log-token">${esc(when)}</span>` : ''}
+            ${remote  ? `<span class="log-token">${esc(remote)}</span>` : ''}
+            ${session ? `<span class="log-token">…${esc(session)}</span>` : ''}
+            ${e.error ? `<span class="log-token" style="color:var(--rose)">${esc(e.error)}</span>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+    return `<div class="log-section-title">${esc(date)}</div>${rows}`;
+  }).join('');
+}
+
+// ── View management ───────────────────────────────────────────────────────────
+function setView(mode) {
+  state.view = mode;
+  el.chatView.style.display = mode === 'chat'     ? '' : 'none';
+  el.termView.style.display = mode === 'terminal' ? '' : 'none';
+  el.logView.style.display  = mode === 'log'      ? '' : 'none';
+  document.querySelectorAll('.view-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.view === mode)
+  );
+  refresh();
+}
+
+// ── Data ──────────────────────────────────────────────────────────────────────
+async function loadInfo() {
+  const data = await api('/api/info');
+  const parts = (data.project || '').split('/');
+  el.projectName.textContent = parts.pop() || data.project;
+  el.projectSub.textContent  = parts.join('/') || '';
+  el.liveDot.className = 'live-dot' + (data.has_session ? '' : ' idle');
+  state.hasSession = !!data.has_session;
+  el.readonlyBanner.classList.toggle('visible', !data.has_session);
+  return data;
+}
+
+async function refresh() {
+  try {
+    if (state.view === 'chat') {
+      const data = await api('/api/conversation');
+      renderChat(el.chatView, data.messages || []);
+    } else if (state.view === 'terminal') {
+      const data = await api('/api/log');
+      const was = nearBottom();
+      el.termView.textContent = data.log || 'No output.';
+      if (was) scrollToBottom();
+    } else if (state.view === 'log') {
+      try {
+        const data = await api('/api/audit');
+        renderLog(el.logView, data.entries || []);
+      } catch (_) {
+        el.logView.innerHTML = `<div class="log-empty">Audit log unavailable.</div>`;
+      }
+    }
+    updateScrollFab();
+  } catch (e) {
+    setStatus(e.message, true);
+  }
+}
+
+async function boot() {
+  try {
+    await loadInfo();
+    await refresh();
+  } catch (e) {
+    showError(e.message);
+    el.projectName.textContent = 'Error';
+  }
+}
+
+// ── Input ─────────────────────────────────────────────────────────────────────
+async function sendInput(payload) {
+  if (!state.hasSession) {
+    setStatus('Read-only — no tmux session configured.', true);
+    return;
+  }
+  try {
+    await api('/api/input', { method: 'POST', body: JSON.stringify(payload) });
+    if (navigator.vibrate) navigator.vibrate(8);
+    setStatus('');
+    await refresh();
+  } catch (e) {
+    setStatus(e.message, true);
+  }
+}
+
+async function sendPrompt(withEnter) {
+  const text = el.composer.value;
+  if (!text.trim()) return;
+  await sendInput({ text: withEnter ? text.trim() : text, enter: withEnter });
+  el.composer.value = '';
+  autoResize();
+}
+
+const sendKey = key => sendInput({ keys: [key] });
+
+// ── Voice ─────────────────────────────────────────────────────────────────────
+function joinTranscript(base, t) {
+  if (!t)    return base;
+  if (!base) return t;
+  return /\s$/.test(base) ? `${base}${t}` : `${base} ${t}`;
+}
+
+function applyVoice() {
+  const spoken = [...state.voiceFinal, state.voiceInterim].join(' ').replace(/\s+/g,' ').trim();
+  el.composer.value = joinTranscript(state.voiceBase, spoken);
+  autoResize();
+}
+
+function setMic(active) {
+  state.recording = active;
+  el.micBtn.classList.toggle('live', active);
+  el.micLabel.textContent = active ? 'Listening…' : 'Hold to talk';
+}
+
+function stopRec() { state.recognition?.stop(); }
+
+function startRec() {
+  if (!SpeechCtor) { setStatus('Speech unavailable — use keyboard mic.', true); return; }
+  if (state.recording) return;
+
+  state.voiceBase    = el.composer.value.trimEnd();
+  state.voiceFinal   = [];
+  state.voiceInterim = '';
+
+  const rec = new SpeechCtor();
+  rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+
+  rec.onstart  = () => { state.recognition = rec; setMic(true); setStatus('Listening…'); };
+  rec.onresult = ev => {
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const t = ev.results[i][0].transcript.trim();
+      if (!t) continue;
+      ev.results[i].isFinal ? state.voiceFinal.push(t) : (state.voiceInterim = t);
+    }
+    applyVoice();
+  };
+  rec.onerror = e => setStatus(
+    e.error === 'not-allowed' ? 'Mic permission denied.' : `Voice: ${e.error}`, true
+  );
+  rec.onend = () => { state.recognition = null; setMic(false); applyVoice(); setStatus(''); };
+  rec.start();
+}
+
+function installMic() {
+  if (!SpeechCtor) {
+    el.micBtn.disabled = true;
+    el.micLabel.textContent = 'Voice unavailable';
+    return;
+  }
+  el.micBtn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    el.micBtn.setPointerCapture(e.pointerId);
+    startRec();
+  });
+  ['pointerup','pointercancel','lostpointercapture']
+    .forEach(ev => el.micBtn.addEventListener(ev, stopRec));
+}
+
+// ── Wire up ───────────────────────────────────────────────────────────────────
+document.querySelectorAll('.view-tab').forEach(t =>
+  t.addEventListener('click', () => setView(t.dataset.view))
+);
+
+el.refreshBtn.addEventListener('click', () => { setStatus('Refreshing…'); boot(); });
+el.sendBtn.addEventListener('click',    () => sendPrompt(true));
+el.scrollFab.addEventListener('click',  () => scrollToBottom());
+
+el.content.addEventListener('scroll', updateScrollFab, { passive: true });
+
+el.composer.addEventListener('input', autoResize);
+el.composer.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendPrompt(true).catch(err => setStatus(err.message, true));
+  }
+});
+
+document.querySelectorAll('[data-key]').forEach(b =>
+  b.addEventListener('click', () => sendKey(b.dataset.key))
+);
+
+installMic();
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+boot();
+state.timer = setInterval(refresh, 2200);
+</script>
+</body>
+</html>
