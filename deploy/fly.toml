@@ -7,8 +7,8 @@
 # If you want Claude auth, session data, and synced project files to survive
 # machine replacement or restart, provision a `home` volume and add a mount.
 
-app            = "your-app-name"   # replaced by setup.sh — do not edit manually
-primary_region = "ord"
+app = "ez-pz-agent-warphole"
+primary_region = "sjc"
 
 [build]
   dockerfile = "Dockerfile"

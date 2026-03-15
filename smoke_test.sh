@@ -10,6 +10,7 @@ set -euo pipefail
 CONF="${HOME}/.claude/warphole.conf"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REMOTE="${1:-}"
+ACTIVE_AGENT=""
 
 PASS=0; FAIL=0
 
@@ -21,17 +22,70 @@ check() {
   if eval "$*" &>/dev/null; then ok "$label"; else fail "$label"; fi
 }
 
+process_chain_agent() {
+  local pid="${PPID:-}"
+  local comm=""
+
+  while [[ -n "$pid" && "$pid" -gt 1 ]] 2>/dev/null; do
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null | awk '{$1=$1; print}')
+    case "$comm" in
+      *codex*) echo "codex"; return 0 ;;
+      *claude*|*Claude*) echo "claude"; return 0 ;;
+    esac
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+  done
+
+  return 1
+}
+
+agent_has_local_session() {
+  local agent="$1"
+  source "$DIR/agents/${agent}.sh"
+  agent_session_id >/dev/null 2>&1
+}
+
+detect_agent() {
+  if [[ -n "${CODEX_THREAD_ID:-}" ]]; then
+    echo "codex"
+    return 0
+  fi
+
+  if [[ -n "${CLAUDECODE:-}" || -n "${CLAUDE_SESSION_ID:-}" ]]; then
+    echo "claude"
+    return 0
+  fi
+
+  if process_chain_agent >/dev/null 2>&1; then
+    process_chain_agent
+    return 0
+  fi
+
+  if agent_has_local_session "claude" && ! agent_has_local_session "codex"; then
+    echo "claude"
+    return 0
+  fi
+
+  if agent_has_local_session "codex" && ! agent_has_local_session "claude"; then
+    echo "codex"
+    return 0
+  fi
+
+  echo "claude"
+}
+
+ACTIVE_AGENT=$(detect_agent)
+
 # ── local: agent ──────────────────────────────────────────────────────────────
 echo ""
 echo "Agent (local)"
 
-source "$DIR/agents/claude.sh"
+source "$DIR/agents/${ACTIVE_AGENT}.sh"
 
 session=$(agent_session_id 2>/dev/null || true)
 if [[ -n "$session" ]]; then
   ok "agent_session_id → ${session:0:20}…"
 else
-  fail "agent_session_id (no active Claude session found — open a project first)"
+  fail "agent_session_id (no active local agent session found — open the project in Claude or Codex first)"
 fi
 
 echo "  sync paths:"
@@ -54,11 +108,9 @@ echo "Config"
 
 if [[ -f "$CONF" ]]; then
   ok "$CONF exists"
-  source "$CONF"
-  check "WARPHOLE_AGENT set"    '[[ -n "${WARPHOLE_AGENT:-}" ]]'
   check "WARPHOLE_PROVIDER set" '[[ -n "${WARPHOLE_PROVIDER:-}" ]]'
   check "provider adapter exists" "[[ -f '$DIR/providers/${WARPHOLE_PROVIDER:-}.sh' ]]"
-  check "agent adapter exists"    "[[ -f '$DIR/agents/${WARPHOLE_AGENT:-}.sh' ]]"
+  check "agent adapter exists"    "[[ -f '$DIR/agents/${ACTIVE_AGENT}.sh' ]]"
 else
   fail "$CONF missing — run: warphole setup"
 fi
@@ -73,11 +125,14 @@ if [[ "$REMOTE" == "--remote" ]]; then
   else
 
   source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
+  source "$DIR/agents/${ACTIVE_AGENT}.sh"
 
   check "SSH reachable"        'provider_ssh "true"'
   check "tmux available"       'provider_ssh "tmux -V"'
   check "rsync available"      'provider_ssh "rsync --version"'
-  check "claude available"     'provider_ssh "runuser -u user -- claude --version"'
+  if declare -F agent_remote_smoke_cmd >/dev/null 2>&1; then
+    check "${ACTIVE_AGENT} available" "provider_ssh \"$(agent_remote_smoke_cmd)\""
+  fi
 
   # Round-trip: write a temp file locally, sync it over, verify it landed.
   tmp_dir=$(mktemp -d)

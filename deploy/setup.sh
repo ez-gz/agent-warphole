@@ -10,6 +10,7 @@ DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$DEPLOY_DIR")"
 CONF="${HOME}/.claude/warphole.conf"
 TOML="$DEPLOY_DIR/fly.toml"
+DEFAULT_APP="ez-pz-agent-warphole"
 
 # ── preflight ─────────────────────────────────────────────────────────────────
 
@@ -23,7 +24,14 @@ echo ""
 echo "agent-warphole — Fly.io Setup"
 echo ""
 
-read -rp "  App name (must be globally unique): " APP
+if [[ -f "$CONF" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONF"
+fi
+
+APP_DEFAULT="${FLY_APP:-$DEFAULT_APP}"
+read -rp "  App name [$APP_DEFAULT]: " APP
+APP="${APP:-$APP_DEFAULT}"
 read -rp "  Region [ord]: " REGION
 REGION="${REGION:-ord}"
 read -rp "  Persistent volume in GB [none]: " VOLUME_GB
@@ -31,8 +39,12 @@ read -rp "  Persistent volume in GB [none]: " VOLUME_GB
 # ── provision ─────────────────────────────────────────────────────────────────
 
 echo ""
-echo "Creating app…"
-fly apps create "$APP" --machines
+if fly apps show "$APP" >/dev/null 2>&1; then
+  echo "Reusing existing app: $APP"
+else
+  echo "Creating app…"
+  fly apps create "$APP" --machines
+fi
 
 echo "Patching fly.toml…"
 sed -i.bak "s/^app *=.*/app = \"$APP\"/" "$TOML"
@@ -43,13 +55,17 @@ DEPLOY_TOML="$(mktemp "$DEPLOY_DIR/fly.XXXXXX")"
 cp "$TOML" "$DEPLOY_TOML"
 
 if [[ -n "$VOLUME_GB" ]]; then
-  echo "Creating persistent volume (${VOLUME_GB}gb)…"
-  # The volume holds /home/user — claude auth and Claude-side session state survive restarts.
-  fly volumes create home \
-    --app "$APP" \
-    --region "$REGION" \
-    --size "$VOLUME_GB" \
-    --yes
+  if fly volumes list -a "$APP" | awk 'NR>1 {print $1}' | grep -qx 'home'; then
+    echo "Reusing existing persistent volume: home"
+  else
+    echo "Creating persistent volume (${VOLUME_GB}gb)…"
+    # The volume holds /home/user — claude auth and Claude-side session state survive restarts.
+    fly volumes create home \
+      --app "$APP" \
+      --region "$REGION" \
+      --size "$VOLUME_GB" \
+      --yes
+  fi
 
   cat >> "$DEPLOY_TOML" <<EOF
 
@@ -60,6 +76,9 @@ if [[ -n "$VOLUME_GB" ]]; then
 EOF
 else
   echo "Skipping persistent volume — remote auth and Claude-side session state will not survive machine replacement."
+  if fly volumes list -a "$APP" | awk 'NR>1 {print $1}' | grep -qx 'home'; then
+    echo "Existing 'home' volume detected and left untouched. Destroy it manually if you want to release that storage."
+  fi
 fi
 
 # ── SSH key for rsync ─────────────────────────────────────────────────────────
@@ -81,24 +100,29 @@ echo "Deploying image (this builds and pushes — ~2 min first time)…"
 (cd "$DEPLOY_DIR" && fly deploy --app "$APP" --config "$DEPLOY_TOML" --wait-timeout 120)
 rm -f "$DEPLOY_TOML"
 
-# ── authenticate claude on the remote ─────────────────────────────────────────
+# ── authenticate agent CLIs on the remote ─────────────────────────────────────
 
 echo ""
-echo "VM is up. Authenticate claude on the remote now:"
+echo "VM is up. Authenticate Claude on the remote now if you plan to use the Claude adapter:"
 echo ""
 echo "  fly ssh console -a $APP"
 echo "  runuser -u user -- claude   # one-time auth/onboarding, then Ctrl-D"
 echo ""
-read -rp "Press Enter once you've authenticated claude on the remote…"
+echo "Codex is also installed on the VM."
+echo "Codex auth is synced from local ~/.codex/auth.json during a codex warphole run,"
+echo "so no separate remote codex login step is required unless you want one."
+echo ""
+read -rp "Press Enter once you're ready to continue…"
 
-# Quick sanity check — if this fails the user sees a clear error.
+# Quick sanity checks — if these fail the user sees a clear error.
 fly ssh console -a "$APP" -C "runuser -u user -- claude --version" \
   || { echo "claude --version failed on remote — check the auth step above."; exit 1; }
+fly ssh console -a "$APP" -C "runuser -u user -- codex --version" \
+  || { echo "codex --version failed on remote."; exit 1; }
 
 # ── write local config ────────────────────────────────────────────────────────
 
 cat > "$CONF" <<EOF
-WARPHOLE_AGENT=claude
 WARPHOLE_PROVIDER=fly
 FLY_APP=$APP
 REMOTE_HOME=/home/user
@@ -108,10 +132,11 @@ EOF
 
 INSTALL_DIR="${HOME}/.claude/warphole"
 COMMANDS_DIR="${HOME}/.claude/commands"
+CODEX_SKILLS_DIR="${HOME}/.codex/skills"
 SOURCE_DIR="$(cd "$REPO_DIR" && pwd -P)"
 INSTALL_DIR_REAL=""
 
-echo "Installing warphole to $INSTALL_DIR…"
+echo "Installing warphole to $INSTALL_DIR..."
 if [[ -e "$INSTALL_DIR" ]]; then
   INSTALL_DIR_REAL="$(cd "$INSTALL_DIR" && pwd -P)"
 fi
@@ -126,10 +151,14 @@ fi
 mkdir -p "$COMMANDS_DIR"
 cp "$INSTALL_DIR/skill/warphole.md" "$COMMANDS_DIR/warphole.md"
 
+mkdir -p "$CODEX_SKILLS_DIR/warphole"
+cp "$INSTALL_DIR/codex-skill/warphole/SKILL.md" "$CODEX_SKILLS_DIR/warphole/SKILL.md"
+
 echo ""
 echo "Done."
 echo "  Config  → $CONF"
 echo "  Command → $COMMANDS_DIR/warphole.md"
+echo "  Codex   → $CODEX_SKILLS_DIR/warphole/SKILL.md"
 echo ""
 echo "  Note: terminal attach is local best-effort (Ghostty/Terminal/iTerm supported explicitly)."
 echo "  Smoke test:  ./smoke_test.sh --remote"

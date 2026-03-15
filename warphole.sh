@@ -13,6 +13,7 @@ CONF="${HOME}/.claude/warphole.conf"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INCOMING_DIR="${HOME}/.claude/warphole-incoming"
 STATE_DIR="${HOME}/.claude/warphole-state"
+ACTIVE_AGENT=""
 
 _remote_disable_hooks() {
   local settings_path backup_path settings_q backup_q
@@ -40,6 +41,24 @@ _remote_disable_hooks() {
   " || { echo "Remote settings sanitization failed." >&2; exit 1; }
 }
 
+_remote_fix_ownership() {
+  local path dest
+  local -a targets=()
+
+  while IFS=$'\t' read -r path dest; do
+    [[ -e "$path" ]] || continue
+    targets+=("${dest:-$path}")
+  done < <(agent_sync_paths)
+
+  [[ ${#targets[@]} -gt 0 ]] || return 0
+
+  local command="mkdir -p $(printf '%q' "$REMOTE_HOME")"
+  for dest in "${targets[@]}"; do
+    command+=" && chown -R user:user $(printf '%q' "$dest")"
+  done
+  provider_ssh "$command"
+}
+
 _remote_paths_for_sync() {
   local path dest
   while IFS=$'\t' read -r path dest; do
@@ -52,7 +71,33 @@ _remote_paths_for_sync() {
 }
 
 _state_file_for_project() {
-  printf '%s/%s.session\n' "$STATE_DIR" "$1"
+  printf '%s/%s/%s.session\n' "$STATE_DIR" "$ACTIVE_AGENT" "$1"
+}
+
+_tmux_session_name() {
+  printf 'warphole-%s-%s\n' "$ACTIVE_AGENT" "$1"
+}
+
+_remote_idle_reaper_cmd() {
+  local session="$1"
+  local tmux_session timeout_seconds=300 poll_seconds=15
+  tmux_session=$(_tmux_session_name "$session")
+
+  cat <<EOF
+session=$(printf '%q' "$tmux_session")
+timeout_seconds=$timeout_seconds
+poll_seconds=$poll_seconds
+while tmux has-session -t "\$session" 2>/dev/null; do
+  now=\$(date +%s)
+  activity=\$(tmux display-message -p -t "\$session" '#{session_activity}' 2>/dev/null || printf '%s\n' "\$now")
+  [[ "\$activity" =~ ^[0-9]+$ ]] || activity=\$now
+  if (( now - activity >= timeout_seconds )); then
+    tmux kill-session -t "\$session" 2>/dev/null || true
+    exit 0
+  fi
+  sleep "\$poll_seconds"
+done
+EOF
 }
 
 _remember_remote_session() {
@@ -60,7 +105,7 @@ _remember_remote_session() {
   local session="$2"
   local state_file
   state_file=$(_state_file_for_project "$encoded_path")
-  mkdir -p "$STATE_DIR"
+  mkdir -p "$(dirname "$state_file")"
   printf '%s\n' "$session" > "$state_file"
 }
 
@@ -79,14 +124,14 @@ _clear_preferred_remote_session() {
 
 _remote_session_exists() {
   local session="$1"
-  provider_ssh "tmux has-session -t $(printf '%q' "warphole-${session}") 2>/dev/null"
+  provider_ssh "tmux has-session -t $(printf '%q' "$(_tmux_session_name "$session")") 2>/dev/null"
 }
 
 _list_remote_sessions_for_project() {
   local encoded_path="$1"
   local prefix_q
-  printf -v prefix_q '%q' "warphole-${encoded_path}__"
-  provider_ssh "tmux list-sessions -F '#S' 2>/dev/null | awk -v prefix=$prefix_q 'index(\$0, prefix) == 1 { sub(/^warphole-/, \"\", \$0); print }'" 2>/dev/null | tr -d '\r'
+  printf -v prefix_q '%q' "warphole-${ACTIVE_AGENT}-${encoded_path}__"
+  provider_ssh "tmux list-sessions -F '#S' 2>/dev/null | awk -v prefix=$prefix_q -v strip=$(printf '%q' "warphole-${ACTIVE_AGENT}-") 'index(\$0, prefix) == 1 { sub(\"^\" strip, \"\", \$0); print }'" 2>/dev/null | tr -d '\r'
 }
 
 _resolve_remote_session_for_project() {
@@ -114,6 +159,7 @@ _resolve_remote_session_for_project() {
     return 2
   fi
 
+  [[ "$ACTIVE_AGENT" == "claude" ]] || return 1
   uuid=$(provider_ssh "ls -t $(printf '%q' "$REMOTE_HOME/.claude/projects/$encoded_path")/*.jsonl 2>/dev/null | head -1 | xargs -I{} basename {} .jsonl" 2>/dev/null | tr -d '\r')
   [[ -n "$uuid" ]] || return 1
   printf '%s__%s\n' "$encoded_path" "$uuid"
@@ -169,6 +215,91 @@ _project_merge_pull() {
 
 # ── commands ──────────────────────────────────────────────────────────────────
 
+_load_agent() {
+  local agent="$1"
+  source "$DIR/agents/${agent}.sh"
+}
+
+_load_provider() {
+  source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
+}
+
+_process_chain_agent() {
+  local pid="${PPID:-}"
+  local comm=""
+
+  while [[ -n "$pid" && "$pid" -gt 1 ]] 2>/dev/null; do
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null | awk '{$1=$1; print}')
+    case "$comm" in
+      *codex*) echo "codex"; return 0 ;;
+      *claude*|*Claude*) echo "claude"; return 0 ;;
+    esac
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+  done
+
+  return 1
+}
+
+_agent_has_local_session() {
+  local agent="$1"
+  _load_agent "$agent"
+  agent_session_id >/dev/null 2>&1
+}
+
+_detect_agent() {
+  if [[ -n "${CODEX_THREAD_ID:-}" ]]; then
+    echo "codex"
+    return 0
+  fi
+
+  if [[ -n "${CLAUDECODE:-}" || -n "${CLAUDE_SESSION_ID:-}" ]]; then
+    echo "claude"
+    return 0
+  fi
+
+  if _process_chain_agent >/dev/null 2>&1; then
+    _process_chain_agent
+    return 0
+  fi
+
+  if _agent_has_local_session "claude" && ! _agent_has_local_session "codex"; then
+    echo "claude"
+    return 0
+  fi
+
+  if _agent_has_local_session "codex" && ! _agent_has_local_session "claude"; then
+    echo "codex"
+    return 0
+  fi
+
+  if _agent_has_local_session "claude" && _agent_has_local_session "codex"; then
+    echo "Could not auto-detect agent: both Claude and Codex have local sessions for this project. Use /warphole claude or /warphole codex." >&2
+    return 1
+  fi
+
+  echo "Could not auto-detect agent from environment or local session state. Use /warphole claude or /warphole codex." >&2
+  return 1
+}
+
+_parse_agent_override() {
+  case "${1:-}" in
+    claude|codex) printf '%s\n' "$1" ;;
+    *) return 1 ;;
+  esac
+}
+
+_select_agent() {
+  local explicit_agent="${1:-}"
+
+  if [[ -n "$explicit_agent" ]]; then
+    ACTIVE_AGENT="$explicit_agent"
+  else
+    ACTIVE_AGENT=$(_detect_agent) || return 1
+  fi
+
+  _load_agent "$ACTIVE_AGENT"
+}
+
 cmd_setup() {
   echo "agent-warphole — Setup"
   echo ""
@@ -176,7 +307,6 @@ cmd_setup() {
   [[ -n "$app" ]] || { echo "App name required." >&2; exit 1; }
 
   cat > "$CONF" <<EOF
-WARPHOLE_AGENT=claude
 WARPHOLE_PROVIDER=fly
 FLY_APP=$app
 REMOTE_HOME=/home/user
@@ -191,8 +321,9 @@ EOF
 
 cmd_go() {
   local msg="${*:-}"  # optional opening prompt to send once the remote session starts
-  local session encoded_path remote_claude_path project_path resume_cmd
-  local remote_claude_path_q project_path_q pwd_q tmux_session_q resume_cmd_q
+  local session encoded_path resume_cmd
+  local idle_reaper_cmd idle_reaper_cmd_q
+  local pwd_q tmux_session_q resume_cmd_q
   session=$(agent_session_id) \
     || { echo "No active session — open a project in Claude first." >&2; exit 1; }
   encoded_path="${session%__*}"
@@ -216,14 +347,10 @@ cmd_go() {
 
   # rsync lands as root so the non-root claude process can read/write its own
   # session files and the synced project tree.
-  remote_claude_path="$REMOTE_HOME/.claude"
-  project_path="$PWD"
-  printf -v remote_claude_path_q '%q' "$remote_claude_path"
-  printf -v project_path_q '%q' "$project_path"
-  provider_ssh "mkdir -p $remote_claude_path_q && chown -R user:user $remote_claude_path_q $project_path_q" \
+  _remote_fix_ownership \
     || { echo "Remote ownership fix failed." >&2; exit 1; }
 
-  _remote_disable_hooks
+  [[ "$ACTIVE_AGENT" == "claude" ]] && _remote_disable_hooks
 
   printf '\nLaunching on remote…\n'
 
@@ -231,12 +358,15 @@ cmd_go() {
   # Reusing an old pane is too error-prone: it can contain stale commands or a
   # previously failed Claude process from an earlier warphole build.
   resume_cmd=$(agent_resume_cmd "$session" "$msg")
+  idle_reaper_cmd=$(_remote_idle_reaper_cmd "$session")
   printf -v pwd_q '%q' "$PWD"
-  printf -v tmux_session_q '%q' "warphole-${session}"
+  printf -v tmux_session_q '%q' "$(_tmux_session_name "$session")"
   printf -v resume_cmd_q '%q' "$resume_cmd"
+  printf -v idle_reaper_cmd_q '%q' "$idle_reaper_cmd"
   provider_ssh "
     tmux kill-session -t $tmux_session_q 2>/dev/null || true
     tmux new-session -d -s $tmux_session_q -c $pwd_q
+    bash -lc $idle_reaper_cmd_q >/dev/null 2>&1 &
     tmux send-keys -t $tmux_session_q -l -- $resume_cmd_q
     tmux send-keys -t $tmux_session_q Enter
   "
@@ -297,7 +427,7 @@ cmd_suck() {
       continue
     fi
 
-    if [[ "$path" == "$HOME/.claude/settings.json" ]]; then
+    if [[ "$ACTIVE_AGENT" == "claude" && "$path" == "$HOME/.claude/settings.json" ]]; then
       remote_path="$REMOTE_HOME/.claude/settings.warphole-local.json"
       provider_ssh "[ -f $(printf '%q' "$remote_path") ]" >/dev/null 2>&1 \
         || remote_path="$REMOTE_HOME/.claude/settings.json"
@@ -327,7 +457,7 @@ cmd_suck() {
 
   printf '\nStopping remote Claude…\n'
   if [[ -n "$remote_session" ]]; then
-    provider_ssh "tmux kill-session -t $(printf '%q' "warphole-${remote_session}") 2>/dev/null || true"
+    provider_ssh "tmux kill-session -t $(printf '%q' "$(_tmux_session_name "$remote_session")") 2>/dev/null || true"
   else
     echo "  no remote tmux session found"
   fi
@@ -344,19 +474,33 @@ case "${1:-go}" in
   suck)
     [[ -f "$CONF" ]] || { echo "Not configured — run: warphole setup" >&2; exit 1; }
     source "$CONF"
-    source "$DIR/agents/${WARPHOLE_AGENT}.sh"
-    source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
+    _select_agent
+    _load_provider
     shift || true
     cmd_suck "$@"
     ;;
   *)
+    [[ -f "$CONF" ]] || { echo "Not configured — run: warphole setup" >&2; exit 1; }
+    source "$CONF"
+    agent_override=""
+    if agent_override=$(_parse_agent_override "${1:-}"); then
+      _select_agent "$agent_override" || exit 1
+      shift
+      if [[ "${1:-}" == "suck" ]]; then
+        _load_provider
+        shift
+        cmd_suck "$@"
+        exit $?
+      fi
+    else
+      _select_agent || exit 1
+    fi
+
+    _load_provider
+
     # Anything that isn't "setup" is treated as an optional opening prompt.
     # /warphole                       → teleport, resume interactively
     # /warphole now execute the spec  → teleport, resume, send that prompt
-    [[ -f "$CONF" ]] || { echo "Not configured — run: warphole setup" >&2; exit 1; }
-    source "$CONF"
-    source "$DIR/agents/${WARPHOLE_AGENT}.sh"
-    source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
     [[ "${1:-}" == "go" ]] && shift || true
     cmd_go "$@"
     ;;

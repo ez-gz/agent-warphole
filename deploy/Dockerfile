@@ -6,12 +6,12 @@ FROM node:22-slim
 
 # tmux: persistent sessions that survive SSH disconnects
 # rsync: fast delta-sync from local machines
-# Non-root user: claude --dangerously-skip-permissions is blocked for root.
+# Non-root user: agent CLIs should run as "user", not root.
 # rsync still lands as root; warphole chowns the synced trees before launch.
 RUN apt-get update -q && \
     apt-get install -y -q --no-install-recommends \
-      tmux rsync openssh-server python3 && \
-    npm install -g @anthropic-ai/claude-code && \
+      ca-certificates tmux rsync openssh-server python3 && \
+    npm install -g @anthropic-ai/claude-code @openai/codex && \
     npm cache clean --force && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     echo 'PermitRootLogin yes'    >> /etc/ssh/sshd_config && \

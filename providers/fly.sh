@@ -121,13 +121,14 @@ provider_rsync_pull() {
 
 provider_attach() {
   local session="$1"
-  local attach_script="$HOME/.claude/warphole-attach-${session}.sh"
+  local tmux_session="warphole-${ACTIVE_AGENT}-${session}"
+  local attach_script="$HOME/.claude/warphole-attach-${ACTIVE_AGENT}-${session}.sh"
   local host_app
   local ghostty_width="${WARPHOLE_GHOSTTY_WINDOW_WIDTH:-140}"
   local ghostty_height="${WARPHOLE_GHOSTTY_WINDOW_HEIGHT:-45}"
 
-  printf '#!/bin/bash\nTERM=xterm-256color fly ssh console -a %s --pty -C '"'"'tmux attach -t warphole-%s'"'"'\n' \
-    "$FLY_APP" "$session" > "$attach_script"
+  printf '#!/bin/bash\nTERM=xterm-256color fly ssh console -a %s --pty -C '"'"'tmux attach -t %s'"'"'\n' \
+    "$FLY_APP" "$tmux_session" > "$attach_script"
   chmod +x "$attach_script"
 
   host_app=$(_host_terminal_app || true)

@@ -66,3 +66,7 @@ agent_resume_cmd() {
   # to the synced project path.
   printf 'runuser -u user -- bash -lc %q\n' "$inner"
 }
+
+agent_remote_smoke_cmd() {
+  echo "runuser -u user -- claude --version"
+}
