@@ -1,16 +1,16 @@
 # Fly.io configuration for the agent-warphole VM.
 #
-# Deploy from the repo root (not deploy/):
-#   fly deploy --config deploy/fly.toml
-# setup.sh handles this automatically.
+# To redeploy (run from repo root — build context must include phone/):
+#   fly deploy --config deploy/fly.toml --dockerfile deploy/Dockerfile --yes
+# setup.sh handles this for new installs automatically.
 #
 # Cost: ~$20-30/mo for shared-cpu-2x with 2gb RAM.
 
-app            = "your-app-name"   # replaced by setup.sh — do not edit manually
+app            = "ztester123"   # patched by setup.sh on fresh install
 primary_region = "ord"
 
 [build]
-  dockerfile = "deploy/Dockerfile"   # relative to repo root (build context = repo root)
+  dockerfile = "Dockerfile"   # relative to fly.toml location (deploy/)
 
 [vm]
   memory   = "2gb"
@@ -29,3 +29,9 @@ primary_region = "ord"
 
 # SSH — internal only, accessed via fly proxy by warphole.sh
 # fly proxy {port}:2222 -a {app}
+
+# Persistent volume — preserves Claude auth, session files, project state across restarts.
+# Added by setup.sh if a volume size was specified. Remove this section if running stateless.
+[[mounts]]
+  source      = "home"
+  destination = "/home/user"
