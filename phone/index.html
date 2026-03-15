@@ -955,8 +955,10 @@ function renderChat(container, messages) {
   const visible = messages.filter(m => m.text || m.tools?.length);
 
   if (!visible.length) {
-    container.innerHTML =
-      `<div class="chat-empty"><div class="icon-large">⊙</div>No messages yet.</div>`;
+    const msg = state.hasSession
+      ? 'No messages yet.'
+      : 'Waiting for session — run <code>/warphole</code> to start one.';
+    container.innerHTML = `<div class="chat-empty"><div class="icon-large">⊙</div>${msg}</div>`;
     return;
   }
 
@@ -1204,7 +1206,15 @@ installMic();
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 boot();
-state.timer = setInterval(refresh, 2200);
+
+// Poll: in waiting mode reload info so the UI updates when a session connects;
+// when a session is live just refresh content.
+state.timer = setInterval(async () => {
+  try {
+    if (!state.hasSession) await loadInfo();
+    await refresh();
+  } catch (_) {}
+}, 2200);
 </script>
 </body>
 </html>

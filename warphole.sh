@@ -321,15 +321,12 @@ cmd_go() {
   _remember_remote_session "$encoded_path" "$session"
 
   # (Re)start phone server pointed at the new session.
-  # HOME=$REMOTE_HOME so Path.home() in controller.py finds the right .claude dir.
+  # -e HOME=... so Path.home() in controller.py finds /home/user/.claude
+  # -- passes the command directly to exec (no shell, no quoting issues)
   # Always named 'warphole-phone' — one active session per VM.
-  local phone_cmd_q
-  printf -v phone_cmd_q '%q' "HOME=$REMOTE_HOME python3 /opt/warphole/phone/controller.py --session warphole-${session} --project $PWD --host 0.0.0.0 --port 8420"
   provider_ssh "
     tmux kill-session -t warphole-phone 2>/dev/null || true
-    tmux new-session -d -s warphole-phone
-    tmux send-keys -t warphole-phone -l -- $phone_cmd_q
-    tmux send-keys -t warphole-phone Enter
+    tmux new-session -d -s warphole-phone -e HOME=$REMOTE_HOME -- python3 /opt/warphole/phone/controller.py --session warphole-${session} --project $PWD --host 0.0.0.0 --port 8420
   " || echo "  warning: phone server could not start on remote" >&2
 
   _audit_log "go" "session" "$session" "remote" "$WARPHOLE_PROVIDER"
