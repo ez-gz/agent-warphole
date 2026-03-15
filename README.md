@@ -9,7 +9,7 @@ Terminal attach is local best-effort. There is no universal macOS API for "open 
 ## Install
 
 ```bash
-git clone https://github.com/yourname/agent-warphole ~/src/agent-warphole
+git clone https://github.com/ez-gz/agent-warphole ~/src/agent-warphole
 cp ~/src/agent-warphole/skill/warphole.md ~/.claude/commands/warphole.md
 ~/src/agent-warphole/deploy/setup.sh   # provision fly.io VM, write config (~5 min, once)
 ```
