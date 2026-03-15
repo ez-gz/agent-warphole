@@ -366,7 +366,7 @@ cmd_go() {
   provider_ssh "
     tmux kill-session -t $tmux_session_q 2>/dev/null || true
     tmux new-session -d -s $tmux_session_q -c $pwd_q
-    bash -lc $idle_reaper_cmd_q >/dev/null 2>&1 &
+    nohup bash -lc $idle_reaper_cmd_q >/dev/null 2>&1 &
     tmux send-keys -t $tmux_session_q -l -- $resume_cmd_q
     tmux send-keys -t $tmux_session_q Enter
   "
