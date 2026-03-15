@@ -22,11 +22,24 @@ RUN apt-get update -q && \
 # just ensures the server is available at first boot before any warphole runs.
 COPY phone/ /opt/warphole/phone/
 
-# Phone server boot wrapper: sets HOME so Path.home() resolves /home/user/.claude
+# Phone server management scripts
+# phone-start.sh: (re)start phone server as a background daemon with PID file.
+#   Optional args forwarded to controller.py (e.g. --session ... --project ...)
+#   HOME is forced to /home/user so Path.home() finds the right .claude dir.
 RUN printf '%s\n' \
   '#!/bin/sh' \
-  'HOME=/home/user exec python3 /opt/warphole/phone/controller.py --host 0.0.0.0 --port 8420' \
+  'PID_FILE=/tmp/warphole-phone.pid' \
+  'LOG_FILE=/tmp/warphole-phone.log' \
+  'kill "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null || true' \
+  'HOME=/home/user nohup python3 /opt/warphole/phone/controller.py --host 0.0.0.0 --port 8420 "$@" >"$LOG_FILE" 2>&1 &' \
+  'echo $! > "$PID_FILE"' \
   > /usr/local/bin/phone-start.sh && chmod +x /usr/local/bin/phone-start.sh
+
+# phone-stop.sh: gracefully stop the phone daemon.
+RUN printf '%s\n' \
+  '#!/bin/sh' \
+  'kill "$(cat /tmp/warphole-phone.pid 2>/dev/null)" 2>/dev/null || true' \
+  > /usr/local/bin/phone-stop.sh && chmod +x /usr/local/bin/phone-stop.sh
 
 WORKDIR /home/user
 
@@ -54,8 +67,8 @@ RUN printf '%s\n' \
   '' \
   '/usr/sbin/sshd' \
   '' \
-  '# Start phone server in waiting mode — warphole go will restart it with session args' \
-  'tmux new-session -d -s warphole-phone /usr/local/bin/phone-start.sh 2>/dev/null || true' \
+  '# Start phone server in waiting mode — warphole go will restart with session args' \
+  '/usr/local/bin/phone-start.sh' \
   '' \
   'exec sleep infinity' \
   > /usr/local/bin/entrypoint.sh && chmod +x /usr/local/bin/entrypoint.sh

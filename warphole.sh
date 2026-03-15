@@ -320,14 +320,14 @@ cmd_go() {
 
   _remember_remote_session "$encoded_path" "$session"
 
-  # (Re)start phone server pointed at the new session.
-  # -e HOME=... so Path.home() in controller.py finds /home/user/.claude
-  # -- passes the command directly to exec (no shell, no quoting issues)
-  # Always named 'warphole-phone' — one active session per VM.
-  provider_ssh "
-    tmux kill-session -t warphole-phone 2>/dev/null || true
-    tmux new-session -d -s warphole-phone -e HOME=$REMOTE_HOME -- python3 /opt/warphole/phone/controller.py --session warphole-${session} --project $PWD --host 0.0.0.0 --port 8420
-  " || echo "  warning: phone server could not start on remote" >&2
+  # (Re)start phone server pointed at the active session.
+  # phone-start.sh: kills existing daemon (by PID file), starts fresh with new args.
+  # --session and --project are forwarded; HOME is forced to REMOTE_HOME inside the script.
+  local session_arg_q project_arg_q
+  printf -v session_arg_q '%q' "warphole-${session}"
+  printf -v project_arg_q '%q' "$PWD"
+  provider_ssh "/usr/local/bin/phone-start.sh --session $session_arg_q --project $project_arg_q" \
+    || echo "  warning: phone server could not start on remote" >&2
 
   _audit_log "go" "session" "$session" "remote" "$WARPHOLE_PROVIDER"
 
@@ -419,11 +419,8 @@ cmd_suck() {
     echo "  no remote tmux session found"
   fi
 
-  # Return phone server to waiting mode
-  provider_ssh "
-    tmux kill-session -t warphole-phone 2>/dev/null || true
-    tmux new-session -d -s warphole-phone /usr/local/bin/phone-start.sh 2>/dev/null || true
-  " 2>/dev/null || true
+  # Return phone server to waiting mode (no session, no project)
+  provider_ssh "/usr/local/bin/phone-start.sh" 2>/dev/null || true
   echo "  phone server → waiting mode"
 
   _clear_preferred_remote_session "$encoded_path"

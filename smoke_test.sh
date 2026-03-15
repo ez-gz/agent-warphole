@@ -100,17 +100,18 @@ if [[ "$REMOTE" == "--remote" ]]; then
   check "python3 available"    'provider_ssh "python3 --version"'
   check "phone server files"   'provider_ssh "[ -f /opt/warphole/phone/controller.py ]"'
   check "phone-start.sh"       'provider_ssh "[ -x /usr/local/bin/phone-start.sh ]"'
+  check "phone-stop.sh"        'provider_ssh "[ -x /usr/local/bin/phone-stop.sh ]"'
 
-  # Check phone server is responding
-  if provider_ssh "tmux has-session -t warphole-phone 2>/dev/null"; then
-    ok "phone tmux session running"
-    # Try to hit the health endpoint via proxy
-    if command -v fly &>/dev/null && [[ -n "${FLY_APP:-}" ]]; then
-      check "phone /health via fly proxy" \
-        "fly proxy 18420:8420 -a '$FLY_APP' &>/dev/null & _pid=\$!; sleep 2; curl -sf http://localhost:18420/health &>/dev/null; kill \$_pid 2>/dev/null"
-    fi
+  # Check phone server process is running
+  if provider_ssh "[ -f /tmp/warphole-phone.pid ] && kill -0 \$(cat /tmp/warphole-phone.pid 2>/dev/null) 2>/dev/null"; then
+    ok "phone server daemon running"
   else
-    warn "phone tmux session not running (expected before first warphole go)"
+    warn "phone server not running (will start on first warphole go)"
+  fi
+
+  # Health check via public HTTPS URL (no proxy needed)
+  if [[ -n "${FLY_APP:-}" ]]; then
+    check "phone /health (public)" "curl -sf https://$FLY_APP.fly.dev/health"
   fi
 
   # Round-trip: write a temp file locally, sync it over, verify it landed.

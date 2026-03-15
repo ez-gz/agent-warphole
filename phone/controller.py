@@ -177,7 +177,11 @@ class Handler(BaseHTTPRequestHandler):
 
   @property
   def _session(self) -> str:
-    return self.server.session  # type: ignore[attr-defined]
+    s = self.server.session  # type: ignore[attr-defined]
+    # Re-verify the session is live on each request — it may have started after boot.
+    if s and not tmux_session_exists(s):
+      return ""
+    return s
 
   @property
   def _project(self) -> str:
@@ -346,8 +350,11 @@ def main() -> None:
 
   session = args.session or auto_detect_session()
 
+  # Soft check: if the requested session doesn't exist yet, warn but start anyway.
+  # The Claude tmux session may not be ready by the time the phone server starts.
+  # /api/input will fail gracefully if the session is still missing at request time.
   if session and not tmux_session_exists(session):
-    parser.error(f"tmux session not found: {session}")
+    print(f"Warning: tmux session not found: {session} — starting anyway, will retry per-request")
 
   # Resolve project path — empty string means "waiting mode" (no session yet)
   if args.project:
