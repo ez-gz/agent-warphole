@@ -1,12 +1,11 @@
-Run the following command and show its full output to the user:
+Run this command:
 
 ```bash
-bash ~/.claude/warphole/warphole.sh $ARGUMENTS
+bash ~/.claude/warphole/warphole.sh $ARGUMENTS 2>&1
 ```
 
-If warphole completes successfully (exit 0):
-- Show the attach command from the output
-- Tell the user their session is now live on the remote VM
-- End this local session
+If `ARGUMENTS` begins with `suck` and the command succeeds, tell the user the remote state was pulled back locally and the remote tmux session was stopped. Keep the local session alive.
 
-If it fails, show the error and keep the session alive so the user can fix the issue.
+Otherwise, if it succeeds, tell the user their session is live and a terminal tab or window has opened with the remote session. End this local session.
+
+If it fails, show the error and keep the local session alive.

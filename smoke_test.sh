@@ -35,7 +35,7 @@ else
 fi
 
 echo "  sync paths:"
-while IFS= read -r path; do
+while IFS=$'\t' read -r path _dest; do
   if [[ -e "$path" ]]; then
     ok "  exists  $path"
   elif [[ "$path" == *CLAUDE.md ]]; then
@@ -68,24 +68,31 @@ if [[ "$REMOTE" == "--remote" ]]; then
   echo ""
   echo "Provider (remote)"
 
-  [[ -f "$CONF" ]] || { fail "config missing — skipping remote tests"; }
+  if [[ ! -f "$CONF" ]]; then
+    fail "config missing — skipping remote tests"
+  else
 
   source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
 
   check "SSH reachable"        'provider_ssh "true"'
   check "tmux available"       'provider_ssh "tmux -V"'
   check "rsync available"      'provider_ssh "rsync --version"'
-  check "claude available"     'provider_ssh "claude --version"'
+  check "claude available"     'provider_ssh "runuser -u user -- claude --version"'
 
   # Round-trip: write a temp file locally, sync it over, verify it landed.
-  tmp=$(mktemp)
+  tmp_dir=$(mktemp -d)
+  tmp="$tmp_dir/warphole smoke $$"
   echo "warphole-smoke-$$" > "$tmp"
-  remote_path="/tmp/warphole-smoke-$$"
+  remote_path="/tmp/warphole smoke $$"
+  printf -v tmp_q '%q' "$tmp"
+  printf -v remote_path_q '%q' "$remote_path"
 
-  check "rsync transfer" "provider_rsync $tmp $remote_path"
-  check "file arrived on remote" "provider_ssh 'grep -q warphole-smoke-$$ $remote_path'"
-  provider_ssh "rm -f $remote_path" &>/dev/null || true
-  rm -f "$tmp"
+  check "rsync transfer" "provider_rsync $tmp_q $remote_path_q"
+  check "file arrived on remote" "provider_ssh \"grep -q warphole-smoke-$$ $remote_path_q\""
+  provider_ssh "rm -f $remote_path_q" &>/dev/null || true
+  rm -rf "$tmp_dir"
+
+  fi  # end config-present guard
 fi
 
 # ── result ────────────────────────────────────────────────────────────────────

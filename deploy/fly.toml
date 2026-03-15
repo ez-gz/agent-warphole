@@ -3,19 +3,15 @@
 # This machine stays always-on. Cost is ~$20-30/mo for a shared-cpu-2x
 # with 2GB RAM. Scale up cpu_kind to "performance" if claude feels slow.
 #
-# The /root volume persists project files and claude session data across
-# VM restarts. Expand it with: fly volumes extend <vol-id> --size <gb>
+# By default this runs without a mounted volume.
+# If you want Claude auth, session data, and synced project files to survive
+# machine replacement or restart, provision a `home` volume and add a mount.
 
-app            = "agent-warphole-vm"   # overwritten by setup.sh
+app            = "your-app-name"   # replaced by setup.sh — do not edit manually
 primary_region = "ord"
 
 [build]
   dockerfile = "Dockerfile"
-
-[[mounts]]
-  source      = "home"
-  destination = "/root"
-  initial_size = "20gb"
 
 [vm]
   memory   = "2gb"
