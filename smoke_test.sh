@@ -7,8 +7,8 @@
 
 set -euo pipefail
 
-CONF="${HOME}/.claude/warphole.conf"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$DIR/lib/constants.sh"
 REMOTE="${1:-}"
 
 PASS=0; FAIL=0
@@ -71,15 +71,15 @@ check "warphole log (empty ok)"       "bash '$DIR/warphole.sh' log || true"
 echo ""
 echo "Config"
 
-if [[ -f "$CONF" ]]; then
-  ok "$CONF exists"
-  source "$CONF"
+if [[ -f "$WARPHOLE_CONF" ]]; then
+  ok "$WARPHOLE_CONF exists"
+  source "$WARPHOLE_CONF"
   check "WARPHOLE_AGENT set"      '[[ -n "${WARPHOLE_AGENT:-}" ]]'
   check "WARPHOLE_PROVIDER set"   '[[ -n "${WARPHOLE_PROVIDER:-}" ]]'
   check "provider adapter exists" "[[ -f '$DIR/providers/${WARPHOLE_PROVIDER:-}.sh' ]]"
   check "agent adapter exists"    "[[ -f '$DIR/agents/${WARPHOLE_AGENT:-}.sh' ]]"
 else
-  fail "$CONF missing — run: warphole setup"
+  fail "$WARPHOLE_CONF missing — run: warphole setup"
 fi
 
 # ── remote: provider (opt-in) ─────────────────────────────────────────────────
@@ -87,7 +87,7 @@ if [[ "$REMOTE" == "--remote" ]]; then
   echo ""
   echo "Provider (remote)"
 
-  if [[ ! -f "$CONF" ]]; then
+  if [[ ! -f "$WARPHOLE_CONF" ]]; then
     fail "config missing — skipping remote tests"
   else
 

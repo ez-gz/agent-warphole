@@ -90,7 +90,7 @@ provider_rsync() {
     remote_spec=$(_rsync_remote_spec "${dest%/}/")
     mkdir_cmd=$(_rsync_remote_mkdir_cmd "$dest")
     rsync -az --rsync-path="$mkdir_cmd" \
-      --exclude='.git' --exclude='node_modules' \
+      "${WARPHOLE_RSYNC_EXCLUDES[@]}" \
       -e "ssh $_SSH_OPTS" "${src%/}/" "$remote_spec"
   else
     remote_spec=$(_rsync_remote_spec "$dest")
@@ -109,7 +109,7 @@ provider_rsync_pull() {
     mkdir -p "$dest"
     remote_spec=$(_rsync_remote_spec "${src%/}/")
     rsync -az \
-      --exclude='.git' --exclude='node_modules' \
+      "${WARPHOLE_RSYNC_EXCLUDES[@]}" \
       -e "ssh $_SSH_OPTS" "$remote_spec" "${dest%/}/"
   else
     mkdir -p "$(dirname "$dest")"

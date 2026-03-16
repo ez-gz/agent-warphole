@@ -16,17 +16,30 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
-import shlex
 import subprocess
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("warphole-phone")
+
 HTML = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
 
 LOG_LINES = 300
 CONVO_LINES = 4000
+AUDIT_TAIL_LINES = 100
+
+# Path encoding convention: absolute path with / replaced by -
+# This matches the encoding used by Claude Code for ~/.claude/projects/ directories
+# and must stay in sync with lib/constants.sh:warphole_encode_path()
+AUDIT_LOG_NAME = "warphole-audit.jsonl"
 
 
 # ── Shell helpers ─────────────────────────────────────────────────────────────
@@ -75,10 +88,17 @@ def tmux_send(session: str, text: str, enter: bool, keys: list[str]) -> None:
 
 # ── Conversation JSONL ────────────────────────────────────────────────────────
 
+def _encode_path(project_path: str) -> str:
+  """Encode a project path for ~/.claude/projects/ directory lookup.
+
+  Convention: replace / with -  (must match lib/constants.sh:warphole_encode_path)
+  """
+  return project_path.replace("/", "-")
+
+
 def project_dir(project_path: str) -> Path:
   """~/.claude/projects/{path-with-slashes-as-dashes}"""
-  encoded = project_path.replace("/", "-")
-  return Path.home() / ".claude" / "projects" / encoded
+  return Path.home() / ".claude" / "projects" / _encode_path(project_path)
 
 
 def latest_jsonl(project_path: str) -> Path:
@@ -163,17 +183,39 @@ def parse_messages(raw: str) -> list[dict]:
   return messages
 
 
+def _read_file_tail(path: Path, max_lines: int) -> str:
+  """Read the last `max_lines` lines of a file without loading it all into memory."""
+  size = path.stat().st_size
+  if size == 0:
+    return ""
+
+  # For small files, just read the whole thing
+  if size < 2 * 1024 * 1024:  # 2 MB
+    return "\n".join(path.read_text(encoding="utf-8").splitlines()[-max_lines:])
+
+  # For large files, read from the tail
+  # Estimate ~500 bytes per JSONL line, read 2x what we need
+  read_size = min(size, max_lines * 1000)
+  with open(path, "rb") as f:
+    f.seek(max(0, size - read_size))
+    if f.tell() > 0:
+      f.readline()  # skip partial first line
+    tail = f.read().decode("utf-8", errors="replace")
+
+  lines = tail.split("\n")[-max_lines:]
+  return "\n".join(lines)
+
+
 def read_conversation(project_path: str) -> list[dict]:
   jsonl = latest_jsonl(project_path)
-  raw   = jsonl.read_text(encoding="utf-8")
-  tail  = "\n".join(raw.splitlines()[-CONVO_LINES:])
+  tail = _read_file_tail(jsonl, CONVO_LINES)
   return parse_messages(tail)
 
 
 # ── HTTP handler ──────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
-  server_version = "warphole-phone/0.2"
+  server_version = "warphole-phone/0.3"
 
   @property
   def _session(self) -> str:
@@ -228,6 +270,7 @@ class Handler(BaseHTTPRequestHandler):
         messages = read_conversation(self._project)
         self._json({"messages": messages})
       except RuntimeError as exc:
+        log.warning("conversation read failed: %s", exc)
         self._text(str(exc), HTTPStatus.BAD_REQUEST)
 
     elif path == "/api/log":
@@ -237,17 +280,18 @@ class Handler(BaseHTTPRequestHandler):
       try:
         self._json({"log": tmux_capture(self._session)})
       except RuntimeError as exc:
+        log.warning("tmux capture failed: %s", exc)
         self._text(str(exc), HTTPStatus.BAD_REQUEST)
 
     elif path == "/api/audit":
-      audit_log = Path.home() / ".claude" / "warphole-audit.jsonl"
+      audit_log = Path.home() / ".claude" / AUDIT_LOG_NAME
       try:
         if not audit_log.exists():
           self._json({"entries": []})
           return
-        raw = audit_log.read_text(encoding="utf-8")
+        raw = _read_file_tail(audit_log, AUDIT_TAIL_LINES)
         entries: list[dict] = []
-        for line in raw.splitlines()[-100:]:
+        for line in raw.splitlines():
           line = line.strip()
           if not line:
             continue
@@ -257,6 +301,7 @@ class Handler(BaseHTTPRequestHandler):
             continue
         self._json({"entries": entries})
       except Exception as exc:
+        log.warning("audit read failed: %s", exc)
         self._text(str(exc), HTTPStatus.BAD_REQUEST)
 
     else:
@@ -289,10 +334,12 @@ class Handler(BaseHTTPRequestHandler):
       tmux_send(self._session, text=text, enter=enter, keys=keys)
       self._json({"ok": True})
     except RuntimeError as exc:
+      log.warning("tmux send failed: %s", exc)
       self._text(str(exc), HTTPStatus.BAD_REQUEST)
 
-  def log_message(self, _fmt: str, *_args) -> None:
-    return
+  def log_message(self, fmt: str, *args) -> None:
+    # Route HTTP access logs through the logging module instead of stderr
+    log.debug(fmt, *args)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -331,7 +378,7 @@ def auto_detect_session() -> str | None:
     # Weak match: node/versioned process in a dir that has a .claude projects entry
     if cmd in ("node", "node.js") or cmd[0].isdigit():
       if pane_path:
-        encoded = pane_path.replace("/", "-")
+        encoded = _encode_path(pane_path)
         if (claude_projects / encoded).is_dir():
           candidates.append(session_name)
 
@@ -354,7 +401,7 @@ def main() -> None:
   # The Claude tmux session may not be ready by the time the phone server starts.
   # /api/input will fail gracefully if the session is still missing at request time.
   if session and not tmux_session_exists(session):
-    print(f"Warning: tmux session not found: {session} — starting anyway, will retry per-request")
+    log.warning("tmux session not found: %s — starting anyway, will retry per-request", session)
 
   # Resolve project path — empty string means "waiting mode" (no session yet)
   if args.project:
@@ -374,13 +421,13 @@ def main() -> None:
     try:
       jsonl = latest_jsonl(project_path)
     except RuntimeError as exc:
-      print(f"Warning: {exc} — starting in waiting mode")
+      log.warning("%s — starting in waiting mode", exc)
 
-  print(f"Project : {project_path or '(waiting for session)'}")
-  print(f"Session : {session or '(none — read-only)'}")
+  log.info("Project : %s", project_path or "(waiting for session)")
+  log.info("Session : %s", session or "(none — read-only)")
   if jsonl:
-    print(f"JSONL   : {jsonl}")
-  print(f"Serving : http://{args.host}:{args.port}")
+    log.info("JSONL   : %s", jsonl)
+  log.info("Serving : http://%s:%d", args.host, args.port)
 
   server = ThreadingHTTPServer((args.host, args.port), Handler)
   server.session      = session or ""  # type: ignore[attr-defined]

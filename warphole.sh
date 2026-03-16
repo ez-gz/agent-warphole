@@ -14,106 +14,40 @@
 
 set -euo pipefail
 
-CONF="${HOME}/.claude/warphole.conf"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INCOMING_DIR="${HOME}/.claude/warphole-incoming"
-STATE_DIR="${HOME}/.claude/warphole-state"
-AUDIT_LOG="${HOME}/.claude/warphole-audit.jsonl"
-REGISTRY="${HOME}/.claude/warphole-registry.json"
+source "$DIR/lib/constants.sh"
+source "$DIR/lib/json.sh"
 
-# ── audit log ─────────────────────────────────────────────────────────────────
+# ── config validation ────────────────────────────────────────────────────────
 
-_audit_log() {
-  local op="$1"; shift
-  python3 -c "
-import json, sys, time
-entry = {'ts': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'op': sys.argv[1], 'project': sys.argv[2]}
-args = sys.argv[3:]
-for i in range(0, len(args)-1, 2):
-    entry[args[i]] = args[i+1]
-print(json.dumps(entry))
-" "$op" "$PWD" "$@" >> "$AUDIT_LOG" 2>/dev/null || true
+_validate_config() {
+  local missing=()
+  [[ -n "${WARPHOLE_AGENT:-}" ]]    || missing+=("WARPHOLE_AGENT")
+  [[ -n "${WARPHOLE_PROVIDER:-}" ]] || missing+=("WARPHOLE_PROVIDER")
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Config error: missing required vars in $WARPHOLE_CONF: ${missing[*]}" >&2
+    exit 1
+  fi
+
+  [[ -f "$DIR/agents/${WARPHOLE_AGENT}.sh" ]] \
+    || { echo "Config error: agent adapter not found: agents/${WARPHOLE_AGENT}.sh" >&2; exit 1; }
+  [[ -f "$DIR/providers/${WARPHOLE_PROVIDER}.sh" ]] \
+    || { echo "Config error: provider adapter not found: providers/${WARPHOLE_PROVIDER}.sh" >&2; exit 1; }
 }
 
-# ── registry helpers ───────────────────────────────────────────────────────────
-
-_registry_update() {
-  python3 -c "
-import json, sys, os
-path = os.path.expanduser('~/.claude/warphole-registry.json')
-data = {}
-if os.path.exists(path):
-    try: data = json.loads(open(path).read())
-    except: pass
-section, name, entry = sys.argv[1], sys.argv[2], json.loads(sys.argv[3])
-if section not in data: data[section] = {}
-data[section][name] = entry
-open(path, 'w').write(json.dumps(data, indent=2) + '\n')
-" "$1" "$2" "$3"
+_load_config() {
+  [[ -f "$WARPHOLE_CONF" ]] || { echo "Not configured — run: warphole setup" >&2; exit 1; }
+  source "$WARPHOLE_CONF"
+  _validate_config
+  source "$DIR/agents/${WARPHOLE_AGENT}.sh"
+  source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
 }
 
-_registry_remove() {
-  python3 -c "
-import json, sys, os
-path = os.path.expanduser('~/.claude/warphole-registry.json')
-if not os.path.exists(path): sys.exit(0)
-data = json.loads(open(path).read())
-data.get(sys.argv[1], {}).pop(sys.argv[2], None)
-open(path, 'w').write(json.dumps(data, indent=2) + '\n')
-" "$1" "$2"
-}
-
-# ── settings.json MCP helpers ─────────────────────────────────────────────────
-
-_settings_mcp_add() {
-  python3 -c "
-import json, sys, os
-path = os.path.expanduser('~/.claude/settings.json')
-data = {}
-if os.path.exists(path):
-    try: data = json.loads(open(path).read())
-    except: pass
-if 'mcpServers' not in data: data['mcpServers'] = {}
-parts = sys.argv[2].split()
-data['mcpServers'][sys.argv[1]] = {'command': parts[0], 'args': parts[1:]} if parts else {'command': ''}
-open(path, 'w').write(json.dumps(data, indent=2) + '\n')
-" "$1" "$2"
-}
-
-_settings_mcp_remove() {
-  python3 -c "
-import json, sys, os
-path = os.path.expanduser('~/.claude/settings.json')
-if not os.path.exists(path): sys.exit(0)
-data = json.loads(open(path).read())
-data.get('mcpServers', {}).pop(sys.argv[1], None)
-open(path, 'w').write(json.dumps(data, indent=2) + '\n')
-" "$1"
-}
-
-# ── remote helpers ────────────────────────────────────────────────────────────
+# ── remote helpers ───────────────────────────────────────────────────────────
 
 _remote_disable_hooks() {
-  local settings_path backup_path settings_q backup_q
-  settings_path="$REMOTE_HOME/.claude/settings.json"
-  backup_path="$REMOTE_HOME/.claude/settings.warphole-local.json"
-  printf -v settings_q '%q' "$settings_path"
-  printf -v backup_q '%q' "$backup_path"
-
-  provider_ssh "
-    if [ -f $settings_q ]; then
-      node -e '
-        const fs = require(\"fs\");
-        const settingsPath = process.argv[1];
-        const backupPath = process.argv[2];
-        const raw = fs.readFileSync(settingsPath, \"utf8\");
-        fs.writeFileSync(backupPath, raw);
-        const data = JSON.parse(raw);
-        delete data.hooks;
-        fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2) + \"\\n\");
-      ' $settings_q $backup_q
-    fi
-  " || { echo "Remote settings sanitization failed." >&2; exit 1; }
+  _json_strip_hooks "$REMOTE_HOME/.claude/settings.json" "$REMOTE_HOME/.claude/settings.warphole-local.json"
 }
 
 _remote_paths_for_sync() {
@@ -128,7 +62,7 @@ _remote_paths_for_sync() {
 }
 
 _state_file_for_project() {
-  printf '%s/%s.session\n' "$STATE_DIR" "$1"
+  printf '%s/%s.session\n' "$WARPHOLE_STATE_DIR" "$1"
 }
 
 _remember_remote_session() {
@@ -136,7 +70,7 @@ _remember_remote_session() {
   local session="$2"
   local state_file
   state_file=$(_state_file_for_project "$encoded_path")
-  mkdir -p "$STATE_DIR"
+  mkdir -p "$WARPHOLE_STATE_DIR"
   printf '%s\n' "$session" > "$state_file"
 }
 
@@ -155,14 +89,14 @@ _clear_preferred_remote_session() {
 
 _remote_session_exists() {
   local session="$1"
-  provider_ssh "tmux has-session -t $(printf '%q' "warphole-${session}") 2>/dev/null"
+  provider_ssh "tmux has-session -t $(printf '%q' "${WARPHOLE_SESSION_PREFIX}${session}") 2>/dev/null"
 }
 
 _list_remote_sessions_for_project() {
   local encoded_path="$1"
   local prefix_q
-  printf -v prefix_q '%q' "warphole-${encoded_path}__"
-  provider_ssh "tmux list-sessions -F '#S' 2>/dev/null | awk -v prefix=$prefix_q 'index(\$0, prefix) == 1 { sub(/^warphole-/, \"\", \$0); print }'" 2>/dev/null | tr -d '\r'
+  printf -v prefix_q '%q' "${WARPHOLE_SESSION_PREFIX}${encoded_path}${WARPHOLE_SESSION_SEP}"
+  provider_ssh "tmux list-sessions -F '#S' 2>/dev/null | awk -v prefix=$prefix_q 'index(\$0, prefix) == 1 { sub(/^${WARPHOLE_SESSION_PREFIX}/, \"\", \$0); print }'" 2>/dev/null | tr -d '\r'
 }
 
 _resolve_remote_session_for_project() {
@@ -192,7 +126,7 @@ _resolve_remote_session_for_project() {
 
   uuid=$(provider_ssh "ls -t $(printf '%q' "$REMOTE_HOME/.claude/projects/$encoded_path")/*.jsonl 2>/dev/null | head -1 | xargs -I{} basename {} .jsonl" 2>/dev/null | tr -d '\r')
   [[ -n "$uuid" ]] || return 1
-  printf '%s__%s\n' "$encoded_path" "$uuid"
+  printf '%s%s%s\n' "$encoded_path" "$WARPHOLE_SESSION_SEP" "$uuid"
 }
 
 _project_merge_pull() {
@@ -203,12 +137,12 @@ _project_merge_pull() {
   local copied=0 preserved=0 conflicts=0
 
   tmp_root=$(mktemp -d "${TMPDIR:-/tmp}/warphole-pull.XXXXXX")
-  incoming_root="$INCOMING_DIR${local_project}"
+  incoming_root="$WARPHOLE_INCOMING_DIR${local_project}"
   provider_rsync_pull "$remote_project" "$tmp_root" || return 1
 
   if [[ "$clobber" == 1 ]]; then
     rsync -az --delete \
-      --exclude='.git' --exclude='node_modules' \
+      "${WARPHOLE_RSYNC_EXCLUDES[@]}" \
       "${tmp_root%/}/" "${local_project%/}/"
     rm -rf "$tmp_root"
     echo "  project sync: clobbered local from remote"
@@ -251,14 +185,14 @@ cmd_setup() {
   read -rp "  Fly.io app name: " app
   [[ -n "$app" ]] || { echo "App name required." >&2; exit 1; }
 
-  cat > "$CONF" <<EOF
+  cat > "$WARPHOLE_CONF" <<EOF
 WARPHOLE_AGENT=claude
 WARPHOLE_PROVIDER=fly
 FLY_APP=$app
 REMOTE_HOME=/home/user
 EOF
 
-  echo "  Config → $CONF"
+  echo "  Config → $WARPHOLE_CONF"
   echo ""
   echo "  Before first use, ensure claude is installed on the remote:"
   echo "    fly ssh console -a $app"
@@ -271,7 +205,7 @@ cmd_go() {
   local remote_claude_path_q project_path_q pwd_q tmux_session_q resume_cmd_q
   session=$(agent_session_id) \
     || { echo "No active session — open a project in Claude first." >&2; exit 1; }
-  encoded_path="${session%__*}"
+  encoded_path="${session%${WARPHOLE_SESSION_SEP}*}"
 
   printf '\n  session   %s\n  remote    %s\n\n' "${session:0:16}" "$WARPHOLE_PROVIDER"
 
@@ -290,7 +224,7 @@ cmd_go() {
   # Sync phone server files to remote
   if [[ -d "$DIR/phone" ]]; then
     printf '    %s\n' "$DIR/phone"
-    provider_rsync "$DIR/phone" "/opt/warphole/phone" \
+    provider_rsync "$DIR/phone" "$WARPHOLE_PHONE_REMOTE_DIR" \
       || { echo "  rsync failed: phone server" >&2; sync_ok=0; }
   fi
 
@@ -309,7 +243,7 @@ cmd_go() {
 
   resume_cmd=$(agent_resume_cmd "$session" "$msg")
   printf -v pwd_q '%q' "$PWD"
-  printf -v tmux_session_q '%q' "warphole-${session}"
+  printf -v tmux_session_q '%q' "${WARPHOLE_SESSION_PREFIX}${session}"
   printf -v resume_cmd_q '%q' "$resume_cmd"
   provider_ssh "
     tmux kill-session -t $tmux_session_q 2>/dev/null || true
@@ -320,11 +254,9 @@ cmd_go() {
 
   _remember_remote_session "$encoded_path" "$session"
 
-  # (Re)start phone server pointed at the active session.
-  # phone-start.sh: kills existing daemon (by PID file), starts fresh with new args.
-  # --session and --project are forwarded; HOME is forced to REMOTE_HOME inside the script.
+  # (Re)start phone server pointed at the active session
   local session_arg_q project_arg_q
-  printf -v session_arg_q '%q' "warphole-${session}"
+  printf -v session_arg_q '%q' "${WARPHOLE_SESSION_PREFIX}${session}"
   printf -v project_arg_q '%q' "$PWD"
   provider_ssh "/usr/local/bin/phone-start.sh --session $session_arg_q --project $project_arg_q" \
     || echo "  warning: phone server could not start on remote" >&2
@@ -356,7 +288,7 @@ cmd_suck() {
     || { echo "No local session metadata found for this project." >&2; exit 1; }
   local_project="$PWD"
   remote_project="$PWD"
-  encoded_path=$(echo "$PWD" | sed 's|/|-|g')
+  encoded_path=$(warphole_encode_path "$PWD")
 
   printf '\n  session   %s\n  action    suck\n\n' "${session:0:16}"
 
@@ -405,8 +337,8 @@ cmd_suck() {
     || { echo "Project merge failed." >&2; exit 1; }
 
   if [[ -n "$remote_session" ]]; then
-    remote_uuid="${remote_session##*__}"
-    touch "$HOME/.claude/projects/$encoded_path/$remote_uuid.jsonl" 2>/dev/null || true
+    remote_uuid="${remote_session##*${WARPHOLE_SESSION_SEP}}"
+    touch "$WARPHOLE_CLAUDE_PROJECTS/$encoded_path/$remote_uuid.jsonl" 2>/dev/null || true
     echo "  preferred local resume session → $remote_session"
   else
     echo "  warning: could not identify remote session id; future resume may prefer the local suck session"
@@ -414,12 +346,12 @@ cmd_suck() {
 
   printf '\nStopping remote Claude…\n'
   if [[ -n "$remote_session" ]]; then
-    provider_ssh "tmux kill-session -t $(printf '%q' "warphole-${remote_session}") 2>/dev/null || true"
+    provider_ssh "tmux kill-session -t $(printf '%q' "${WARPHOLE_SESSION_PREFIX}${remote_session}") 2>/dev/null || true"
   else
     echo "  no remote tmux session found"
   fi
 
-  # Return phone server to waiting mode (no session, no project)
+  # Return phone server to waiting mode
   provider_ssh "/usr/local/bin/phone-start.sh" 2>/dev/null || true
   echo "  phone server → waiting mode"
 
@@ -436,7 +368,7 @@ cmd_list() {
     || { echo "  Remote unreachable — is the VM running?" >&2; exit 1; }
 
   local encoded_path sessions=()
-  encoded_path=$(echo "$PWD" | sed 's|/|-|g')
+  encoded_path=$(warphole_encode_path "$PWD")
 
   while IFS= read -r s; do
     [[ -n "$s" ]] && sessions+=("$s")
@@ -459,7 +391,7 @@ cmd_status() {
   local session encoded_path preferred
 
   session=$(agent_session_id 2>/dev/null) || session=""
-  encoded_path=$(echo "$PWD" | sed 's|/|-|g')
+  encoded_path=$(warphole_encode_path "$PWD")
 
   printf '\n  project   %s\n' "$PWD"
   [[ -n "$session" ]] && printf '  session   %s\n' "${session:0:40}"
@@ -472,7 +404,7 @@ cmd_status() {
   preferred=$(_preferred_remote_session "$encoded_path" 2>/dev/null || true)
   if [[ -n "$preferred" ]] && _remote_session_exists "$preferred" >/dev/null 2>&1; then
     printf '  remote    running\n'
-    printf '  phone     fly proxy 8420:8420 -a %s && open http://localhost:8420\n' "${FLY_APP:-<app>}"
+    printf '  phone     https://%s.fly.dev\n' "${FLY_APP:-<app>}"
   else
     printf '  remote    stopped\n'
   fi
@@ -489,12 +421,12 @@ cmd_log() {
     esac
   done
 
-  if [[ ! -f "$AUDIT_LOG" ]]; then
-    echo "No audit log at $AUDIT_LOG"
+  if [[ ! -f "$WARPHOLE_AUDIT_LOG" ]]; then
+    echo "No audit log at $WARPHOLE_AUDIT_LOG"
     return 0
   fi
 
-  tail -n "$n" "$AUDIT_LOG" | python3 -c "
+  tail -n "$n" "$WARPHOLE_AUDIT_LOG" | python3 -c "
 import json, sys
 
 project_filter = sys.argv[1] if len(sys.argv) > 1 else ''
@@ -566,24 +498,13 @@ cmd_mcp() {
       shift
       local cmd_str="$*"
       [[ -n "$cmd_str" ]] || { echo "Command required." >&2; exit 1; }
-      _settings_mcp_add "$name" "$cmd_str"
+      _settings_mcp_add "$name" "$HOME/.claude/settings.json" "$cmd_str"
       printf '  added MCP server: %s\n' "$name"
       _registry_update "mcp" "$name" "{\"name\":\"$name\",\"command\":\"$cmd_str\"}"
       ;;
     list)
       echo "  MCP servers in ~/.claude/settings.json:"
-      python3 -c "
-import json, os, sys
-path = os.path.expanduser('~/.claude/settings.json')
-if not os.path.exists(path): sys.exit(0)
-data = json.loads(open(path).read())
-servers = data.get('mcpServers', {})
-if not servers:
-    print('    (none)')
-for name, conf in servers.items():
-    parts = [conf.get('command', '')] + conf.get('args', [])
-    print(f'    {name}: {\" \".join(p for p in parts if p)}')
-"
+      _settings_mcp_list
       ;;
     remove)
       local name="${1:?Usage: warphole mcp remove <name>}"
@@ -592,36 +513,7 @@ for name, conf in servers.items():
       _registry_remove "mcp" "$name"
       ;;
     sync-to-remote)
-      # Sync local MCP config to remote settings.json (called internally by cmd_go)
-      python3 -c "
-import json, os, sys
-local_path = os.path.expanduser('~/.claude/settings.json')
-if not os.path.exists(local_path): sys.exit(0)
-data = json.loads(open(local_path).read())
-servers = data.get('mcpServers', {})
-if not servers: sys.exit(0)
-for name, conf in servers.items():
-    parts = [conf.get('command','')] + conf.get('args',[])
-    print(f'{name}\t{chr(32).join(p for p in parts if p)}')
-" | while IFS=$'\t' read -r name cmd_str; do
-        echo "  syncing MCP: $name"
-        # Update remote settings via SSH
-        local remote_settings_q cmd_str_q
-        printf -v remote_settings_q '%q' "$REMOTE_HOME/.claude/settings.json"
-        printf -v cmd_str_q '%q' "$cmd_str"
-        provider_ssh "python3 -c \"
-import json, sys, os
-path = '$REMOTE_HOME/.claude/settings.json'
-data = {}
-if os.path.exists(path):
-    try: data = json.loads(open(path).read())
-    except: pass
-if 'mcpServers' not in data: data['mcpServers'] = {}
-parts = $cmd_str_q.split()
-data['mcpServers']['$name'] = {'command': parts[0], 'args': parts[1:]} if parts else {'command': ''}
-open(path, 'w').write(json.dumps(data, indent=2) + chr(10))
-\"" || true
-      done
+      _settings_mcp_sync_to_remote "$REMOTE_HOME/.claude/settings.json"
       ;;
     *)
       echo "Usage: warphole mcp [add <name> <command>|list|remove <name>]" >&2
@@ -637,17 +529,11 @@ case "${1:-go}" in
     cmd_setup
     ;;
   list)
-    [[ -f "$CONF" ]] || { echo "Not configured — run: warphole setup" >&2; exit 1; }
-    source "$CONF"
-    source "$DIR/agents/${WARPHOLE_AGENT}.sh"
-    source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
+    _load_config
     cmd_list
     ;;
   status)
-    [[ -f "$CONF" ]] || { echo "Not configured — run: warphole setup" >&2; exit 1; }
-    source "$CONF"
-    source "$DIR/agents/${WARPHOLE_AGENT}.sh"
-    source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
+    _load_config
     cmd_status
     ;;
   log)
@@ -663,18 +549,12 @@ case "${1:-go}" in
     cmd_mcp "$@"
     ;;
   suck)
-    [[ -f "$CONF" ]] || { echo "Not configured — run: warphole setup" >&2; exit 1; }
-    source "$CONF"
-    source "$DIR/agents/${WARPHOLE_AGENT}.sh"
-    source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
+    _load_config
     shift || true
     cmd_suck "$@"
     ;;
   *)
-    [[ -f "$CONF" ]] || { echo "Not configured — run: warphole setup" >&2; exit 1; }
-    source "$CONF"
-    source "$DIR/agents/${WARPHOLE_AGENT}.sh"
-    source "$DIR/providers/${WARPHOLE_PROVIDER}.sh"
+    _load_config
     [[ "${1:-}" == "go" ]] && shift || true
     cmd_go "$@"
     ;;
