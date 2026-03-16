@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Phone</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+  <style>
+    :root {
+      --bg:         #0f1117;
+      --surface:    #1a1d26;
+      --surface-2:  #242836;
+      --surface-3:  #2e3347;
+      --border:     rgba(255,255,255,0.08);
+      --border-2:   rgba(255,255,255,0.13);
+      --text:       #e8eaf0;
+      --text-soft:  #8892a4;
+      --text-dim:   #505868;
+      --teal:       #0f9d84;
+      --teal-soft:  rgba(15, 157, 132, 0.14);
+      --teal-glow:  rgba(15, 157, 132, 0.5);
+      --rose:       #e05a4e;
+      --rose-soft:  rgba(224, 90, 78, 0.12);
+      --mono:       "SFMono-Regular", "Cascadia Code", Menlo, monospace;
+      --sans:       -apple-system, "Helvetica Neue", sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+    }
+
+    /* ── Header ── */
+    .header {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      padding-top: env(safe-area-inset-top);
+      height: calc(52px + env(safe-area-inset-top));
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      z-index: 10;
+    }
+
+    .back-btn {
+      appearance: none; border: 0; background: transparent;
+      color: var(--teal); font: inherit; font-size: 0.82rem; font-weight: 700;
+      padding: 4px 2px; cursor: pointer;
+      display: none;
+    }
+    .back-btn.visible { display: block; }
+
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      flex-shrink: 0;
+    }
+    .status-dot.live {
+      background: var(--teal);
+      box-shadow: 0 0 6px var(--teal-glow);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 4px var(--teal-glow); }
+      50%      { box-shadow: 0 0 10px var(--teal-glow); }
+    }
+
+    .header-info {
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column;
+    }
+    .header-title {
+      font-size: 0.88rem; font-weight: 700;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      line-height: 1.2; letter-spacing: -0.01em;
+    }
+    .header-sub {
+      font-size: 0.68rem; color: var(--text-soft);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      line-height: 1.2;
+    }
+
+    .tab-bar {
+      display: none;
+      background: var(--surface-2);
+      border-radius: 8px;
+      padding: 3px; gap: 2px;
+      flex-shrink: 0;
+    }
+    .tab-bar.visible { display: flex; }
+
+    .tab {
+      appearance: none; border: 0;
+      background: transparent;
+      color: var(--text-soft);
+      font: inherit; font-size: 0.68rem; font-weight: 700;
+      letter-spacing: 0.06em; text-transform: uppercase;
+      padding: 4px 9px; border-radius: 6px;
+      cursor: pointer;
+    }
+    .tab.active { background: var(--surface); color: var(--text); }
+
+    /* ── Content ── */
+    .content {
+      flex: 1 1 0;
+      overflow-y: auto; overflow-x: hidden;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* ── Sessions list ── */
+    .sessions-list {
+      padding: 12px;
+      display: flex; flex-direction: column; gap: 8px;
+      min-height: 100%;
+    }
+
+    .sessions-header {
+      font-size: 0.72rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--text-dim);
+      padding: 4px 4px 2px;
+    }
+
+    .session-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: border-color 0.12s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .session-card:active { border-color: var(--teal); }
+
+    .session-card-top {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .session-card .status-dot { width: 6px; height: 6px; }
+
+    .session-card-name {
+      font-size: 0.88rem; font-weight: 700;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .session-card-time {
+      font-size: 0.68rem; color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    .session-card-meta {
+      display: flex; gap: 8px; align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .session-card-badge {
+      font-size: 0.64rem; font-family: var(--mono);
+      padding: 1px 6px; border-radius: 4px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--text-soft);
+    }
+
+    .session-card-preview {
+      font-size: 0.78rem; color: var(--text-soft);
+      line-height: 1.4;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    .sessions-empty {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 8px; color: var(--text-soft); font-size: 0.88rem;
+      text-align: center; padding: 40px 20px;
+    }
+
+    /* ── Chat view ── */
+    .chat {
+      display: none; flex-direction: column;
+      gap: 10px;
+      padding: 14px 12px 24px;
+      min-height: 100%;
+    }
+    .chat.visible { display: flex; }
+
+    .msg { display: flex; flex-direction: column; gap: 4px; }
+    .msg.user      { align-self: flex-end; max-width: 88%; }
+    .msg.assistant { align-self: flex-start; max-width: 100%; }
+
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 16px;
+      font-size: 0.88rem; line-height: 1.56;
+      word-break: break-word;
+    }
+    .msg.user .bubble {
+      background: var(--teal-soft);
+      border: 1px solid rgba(15,157,132,0.18);
+      border-bottom-right-radius: 4px;
+      white-space: pre-wrap;
+    }
+    .msg.assistant .bubble {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    /* Markdown inside bubbles */
+    .bubble p              { margin: 0 0 0.6em; }
+    .bubble p:last-child   { margin-bottom: 0; }
+    .bubble h1, .bubble h2, .bubble h3 {
+      font-weight: 700; margin: 0.8em 0 0.3em; line-height: 1.25;
+    }
+    .bubble h1:first-child, .bubble h2:first-child, .bubble h3:first-child { margin-top: 0; }
+    .bubble h1 { font-size: 1.1em; }
+    .bubble h2 { font-size: 1em; }
+    .bubble h3 { font-size: 0.95em; }
+    .bubble strong { font-weight: 700; }
+    .bubble em     { font-style: italic; }
+    .bubble ul, .bubble ol { padding-left: 1.4em; margin: 0.4em 0; }
+    .bubble li     { margin: 0.15em 0; }
+    .bubble hr     { border: 0; border-top: 1px solid var(--border-2); margin: 0.8em 0; }
+    .bubble blockquote {
+      border-left: 3px solid var(--border-2);
+      padding-left: 0.8em; color: var(--text-soft); margin: 0.5em 0;
+    }
+    .bubble a { color: var(--teal); text-decoration: none; }
+    .bubble a:hover { text-decoration: underline; }
+    .bubble code {
+      font-family: var(--mono); font-size: 0.85em;
+      background: rgba(255,255,255,0.07);
+      padding: 1px 5px; border-radius: 4px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .bubble pre {
+      margin: 0.6em 0; padding: 12px 14px;
+      overflow-x: auto;
+      background: #131720;
+      border: 1px solid rgba(255,255,255,0.07);
+      border-radius: 10px;
+      font-family: var(--mono); font-size: 0.8rem;
+      line-height: 1.55; white-space: pre; color: #c8d0e0;
+    }
+    .bubble pre code {
+      background: none; border: none; padding: 0; font-size: inherit;
+    }
+    .bubble pre::-webkit-scrollbar { height: 4px; }
+    .bubble pre::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+    .bubble table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.85em; width: 100%; }
+    .bubble th, .bubble td { border: 1px solid var(--border-2); padding: 4px 8px; text-align: left; }
+    .bubble th { background: rgba(255,255,255,0.04); font-weight: 700; }
+
+    .tools { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 3px 0; }
+    .tool-pill {
+      font-size: 0.66rem; font-family: var(--mono);
+      padding: 2px 8px; border-radius: 999px;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+    .msg-ts { font-size: 0.62rem; color: var(--text-dim); padding: 0 3px; }
+    .msg.user .msg-ts { text-align: right; }
+
+    .empty-msg {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 8px; color: var(--text-soft); font-size: 0.88rem;
+      text-align: center; padding: 40px 20px;
+    }
+
+    /* ── Terminal view ── */
+    .terminal {
+      display: none;
+      min-height: 100%;
+      padding: 14px 16px 20px;
+      font-family: var(--mono);
+      font-size: 0.79rem; line-height: 1.58;
+      white-space: pre-wrap; word-break: break-all;
+      color: #c8d0e0;
+    }
+    .terminal.visible { display: block; }
+
+    /* ── Scroll FAB ── */
+    .scroll-fab {
+      position: fixed;
+      bottom: calc(var(--controls-h, 60px) + 12px);
+      right: 14px;
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: var(--surface-3);
+      border: 1px solid var(--border-2);
+      color: var(--text-soft);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 50;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+    }
+    .scroll-fab.visible { opacity: 1; pointer-events: auto; }
+
+    /* ── Controls ── */
+    .controls {
+      flex: 0 0 auto;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding-bottom: max(14px, env(safe-area-inset-bottom));
+      display: none;
+    }
+    .controls.visible { display: block; }
+
+    .quick-keys {
+      display: none;
+      gap: 5px; padding: 8px 12px 4px;
+      overflow-x: auto; scrollbar-width: none;
+    }
+    .quick-keys::-webkit-scrollbar { display: none; }
+    .quick-keys.visible { display: flex; }
+
+    .key-btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface-2); color: var(--text);
+      border-radius: 7px; padding: 5px 11px;
+      font-family: var(--mono); font-size: 0.73rem; font-weight: 600;
+      white-space: nowrap; flex-shrink: 0; min-height: 30px;
+      cursor: pointer;
+    }
+    .key-btn:active { opacity: 0.5; }
+    .key-btn.warn { color: var(--rose); border-color: rgba(224,90,78,0.22); }
+
+    .composer-row {
+      display: flex; align-items: flex-end;
+      gap: 8px; padding: 8px 12px 4px;
+    }
+    .composer {
+      flex: 1 1 0;
+      min-height: 40px; max-height: 130px;
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 10px 14px;
+      background: var(--surface-2); color: var(--text);
+      font: inherit; font-size: 1rem; line-height: 1.4;
+      resize: none; outline: none;
+    }
+    .composer:focus { border-color: rgba(15,157,132,0.4); }
+    .composer::placeholder { color: var(--text-soft); }
+
+    .send-btn {
+      appearance: none; border: 0;
+      background: var(--teal); color: #fff;
+      width: 40px; height: 40px; border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .send-btn:active { opacity: 0.75; }
+
+    .voice-row { padding: 0 12px 3px; }
+    .mic-btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      width: 100%; min-height: 48px;
+      border-radius: 13px;
+      background: var(--surface-2); color: var(--text-soft);
+      font: inherit; font-size: 0.86rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      cursor: pointer; user-select: none;
+    }
+    .mic-btn.live {
+      background: var(--teal-soft);
+      border-color: rgba(15,157,132,0.35);
+      color: var(--teal);
+    }
+    .mic-btn:disabled { opacity: 0.3; }
+
+    /* ── Toast ── */
+    .toast {
+      position: fixed;
+      top: calc(58px + env(safe-area-inset-top));
+      left: 12px; right: 12px; z-index: 200;
+      background: rgba(224,90,78,0.12);
+      border: 1px solid rgba(224,90,78,0.3);
+      color: #ff8b82; border-radius: 12px;
+      padding: 10px 14px; font-size: 0.82rem;
+      display: none;
+    }
+    .toast.visible { display: block; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <header class="header">
+    <button class="back-btn" id="backBtn">&larr;</button>
+    <div class="status-dot" id="dot"></div>
+    <div class="header-info">
+      <span class="header-title" id="title">Sessions</span>
+      <span class="header-sub" id="subtitle"></span>
+    </div>
+    <div class="tab-bar" id="tabBar">
+      <button class="tab active" data-view="chat">Chat</button>
+      <button class="tab" data-view="terminal">Term</button>
+    </div>
+  </header>
+
+  <div class="content" id="content">
+    <div class="sessions-list" id="sessionsView">
+      <div class="sessions-empty">Loading sessions…</div>
+    </div>
+    <div class="chat" id="chatView"></div>
+    <pre class="terminal" id="termView"></pre>
+  </div>
+
+  <button class="scroll-fab" id="scrollFab" aria-label="Scroll to bottom">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="6 9 12 15 18 9"/>
+    </svg>
+  </button>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="controls" id="controls">
+    <div class="quick-keys" id="quickKeys">
+      <button class="key-btn warn" data-key="C-c">ctrl-c</button>
+      <button class="key-btn" data-key="Escape">esc</button>
+      <button class="key-btn" data-key="Tab">tab</button>
+      <button class="key-btn" data-key="Up">↑</button>
+      <button class="key-btn" data-key="Down">↓</button>
+      <button class="key-btn" data-key="Left">←</button>
+      <button class="key-btn" data-key="Right">→</button>
+      <button class="key-btn" data-key="BSpace">⌫</button>
+      <button class="key-btn" data-key="Enter">↩</button>
+    </div>
+
+    <div class="composer-row">
+      <textarea class="composer" id="composer" placeholder="Message…" rows="1"
+        enterkeyhint="send" autocorrect="on" autocapitalize="sentences" spellcheck="true"></textarea>
+      <button class="send-btn" id="sendBtn" aria-label="Send">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="voice-row">
+      <button class="mic-btn" id="micBtn">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+          <line x1="12" y1="19" x2="12" y2="23"/>
+          <line x1="8" y1="23" x2="16" y2="23"/>
+        </svg>
+        <span id="micLabel">Hold to talk</span>
+      </button>
+    </div>
+  </div>
+
+</div>
+<script>
+'use strict';
+
+// ── Config ──────────────────────────────────────────────────────────────────
+// Multi-node: add more entries here. Each node runs server.py.
+const NODES = [{ name: 'local', url: '' }];
+
+// ── Markdown ────────────────────────────────────────────────────────────────
+marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+
+function renderMd(text) {
+  try { return marked.parse(text); }
+  catch { return '<pre>' + esc(text) + '</pre>'; }
+}
+
+function esc(t) {
+  return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+const Speech = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+const state = {
+  view: 'sessions',       // 'sessions' | 'chat' | 'terminal'
+  activeSession: null,     // selected session object
+  sessions: [],            // all sessions from all nodes
+  recognition: null,
+  recording: false,
+  voiceBase: '',
+  voiceFinal: [],
+  voiceInterim: '',
+  lastConvoHash: '',
+  pollTimer: null,
+};
+
+const $ = id => document.getElementById(id);
+const el = {
+  backBtn: $('backBtn'), dot: $('dot'),
+  title: $('title'), subtitle: $('subtitle'),
+  tabBar: $('tabBar'),
+  content: $('content'),
+  sessionsView: $('sessionsView'),
+  chatView: $('chatView'), termView: $('termView'),
+  quickKeys: $('quickKeys'), scrollFab: $('scrollFab'),
+  toast: $('toast'), controls: $('controls'),
+  composer: $('composer'), sendBtn: $('sendBtn'),
+  micBtn: $('micBtn'), micLabel: $('micLabel'),
+};
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+function nearBottom(t = 80) {
+  const c = el.content;
+  return c.scrollHeight - c.scrollTop - c.clientHeight < t;
+}
+function scrollBottom() { el.content.scrollTop = el.content.scrollHeight; }
+function updateFab() {
+  el.scrollFab.classList.toggle('visible', !nearBottom(120));
+  el.scrollFab.style.setProperty('--controls-h', el.controls.offsetHeight + 'px');
+}
+
+function showToast(msg) {
+  if (!msg) { el.toast.classList.remove('visible'); return; }
+  el.toast.textContent = msg;
+  el.toast.classList.add('visible');
+  setTimeout(() => el.toast.classList.remove('visible'), 5000);
+}
+
+function autoResize() {
+  el.composer.style.height = 'auto';
+  el.composer.style.height = Math.min(el.composer.scrollHeight, 130) + 'px';
+}
+
+function api(path, opts = {}) {
+  const base = state.activeSession?.nodeUrl || '';
+  return fetch(base + path, { headers: { 'Content-Type': 'application/json' }, ...opts })
+    .then(async r => {
+      if (!r.ok) throw new Error(await r.text() || r.statusText);
+      const ct = r.headers.get('content-type') || '';
+      return ct.includes('json') ? r.json() : r.text();
+    });
+}
+
+function fmtTime(epoch) {
+  if (!epoch) return '';
+  try {
+    const d = new Date(typeof epoch === 'number' ? epoch * 1000 : epoch);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+}
+
+function fmtRelative(epoch) {
+  if (!epoch) return '';
+  const diff = Date.now() - epoch * 1000;
+  const m = Math.floor(diff / 60000);
+  if (m < 1)  return 'now';
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h';
+  return Math.floor(h / 24) + 'd';
+}
+
+// ── Views ───────────────────────────────────────────────────────────────────
+function setView(mode) {
+  state.view = mode;
+  state.lastConvoHash = '';
+
+  // Visibility
+  el.sessionsView.style.display = mode === 'sessions' ? '' : 'none';
+  el.chatView.classList.toggle('visible', mode === 'chat');
+  el.termView.classList.toggle('visible', mode === 'terminal');
+  el.controls.classList.toggle('visible', mode !== 'sessions');
+  el.tabBar.classList.toggle('visible', mode !== 'sessions');
+  el.backBtn.classList.toggle('visible', mode !== 'sessions');
+  el.quickKeys.classList.toggle('visible', mode === 'terminal');
+
+  // Header
+  if (mode === 'sessions') {
+    el.title.textContent = 'Sessions';
+    el.subtitle.textContent = '';
+    el.dot.className = 'status-dot';
+    el.dot.style.display = 'none';
+  } else if (state.activeSession) {
+    const s = state.activeSession;
+    el.title.textContent = s.project_name || 'Unknown';
+    const parts = [s.branch, s.model].filter(Boolean);
+    el.subtitle.textContent = parts.join(' · ');
+    el.dot.style.display = '';
+    el.dot.className = 'status-dot' + (s.status === 'live' ? ' live' : '');
+  }
+
+  // Tabs
+  document.querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.view === mode));
+
+  refresh();
+}
+
+// ── Render: sessions list ───────────────────────────────────────────────────
+function renderSessions(container, sessions) {
+  if (!sessions.length) {
+    container.innerHTML = '<div class="sessions-empty">No sessions found.<br>Start Claude in a tmux session.</div>';
+    return;
+  }
+
+  // Group: live first, then idle
+  const live = sessions.filter(s => s.status === 'live');
+  const idle = sessions.filter(s => s.status !== 'live');
+
+  let html = '';
+
+  if (live.length) {
+    html += '<div class="sessions-header">Live</div>';
+    html += live.map(sessionCard).join('');
+  }
+  if (idle.length) {
+    html += '<div class="sessions-header">Recent</div>';
+    html += idle.slice(0, 20).map(sessionCard).join('');
+  }
+
+  container.innerHTML = html;
+
+  // Wire up click handlers
+  container.querySelectorAll('.session-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const id = card.dataset.id;
+      const session = sessions.find(s => s.id === id);
+      if (session) selectSession(session);
+    });
+  });
+}
+
+function sessionCard(s) {
+  const dot = s.status === 'live' ? 'status-dot live' : 'status-dot';
+  const time = fmtRelative(s.mtime);
+  const badges = [];
+  if (s.branch) badges.push(`<span class="session-card-badge">${esc(s.branch)}</span>`);
+  if (s.model)  badges.push(`<span class="session-card-badge">${esc(s.model.split('-').pop())}</span>`);
+
+  return `<div class="session-card" data-id="${esc(s.id)}">
+    <div class="session-card-top">
+      <div class="${dot}"></div>
+      <span class="session-card-name">${esc(s.project_name)}</span>
+      <span class="session-card-time">${esc(time)}</span>
+    </div>
+    ${badges.length ? `<div class="session-card-meta">${badges.join('')}</div>` : ''}
+    ${s.last_message ? `<div class="session-card-preview">${esc(s.last_message)}</div>` : ''}
+  </div>`;
+}
+
+function selectSession(session) {
+  state.activeSession = session;
+  setView('chat');
+}
+
+// ── Render: chat ────────────────────────────────────────────────────────────
+function renderChat(container, messages) {
+  const visible = messages.filter(m => m.text || (m.tools && m.tools.length));
+
+  if (!visible.length) {
+    container.innerHTML = `<div class="empty-msg">No messages yet.</div>`;
+    return;
+  }
+
+  const hash = JSON.stringify(visible.map(m => m.text + (m.tools||[]).join()));
+  if (hash === state.lastConvoHash) return;
+  state.lastConvoHash = hash;
+
+  const wasNear = nearBottom();
+
+  container.innerHTML = visible.map(m => {
+    const content = m.role === 'assistant' ? renderMd(m.text || '') : esc(m.text || '');
+    const bubble = m.text ? `<div class="bubble">${content}</div>` : '';
+    const tools = m.tools?.length
+      ? `<div class="tools">${m.tools.map(t => `<span class="tool-pill">${esc(t)}</span>`).join('')}</div>`
+      : '';
+    const ts = m.ts ? `<div class="msg-ts">${fmtTime(m.ts)}</div>` : '';
+    return `<div class="msg ${esc(m.role)}">${bubble}${tools}${ts}</div>`;
+  }).join('');
+
+  if (wasNear) scrollBottom();
+}
+
+// ── Data fetching ───────────────────────────────────────────────────────────
+async function loadSessions() {
+  try {
+    const results = await Promise.allSettled(
+      NODES.map(n =>
+        fetch(n.url + '/api/sessions')
+          .then(r => r.json())
+          .then(d => (d.sessions || []).map(s => ({ ...s, nodeUrl: n.url, node: d.node || n.name })))
+      )
+    );
+    state.sessions = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+
+    // If we have an active session, update its status
+    if (state.activeSession) {
+      const updated = state.sessions.find(s => s.id === state.activeSession.id);
+      if (updated) state.activeSession = updated;
+    }
+  } catch {}
+}
+
+async function refresh() {
+  try {
+    if (state.view === 'sessions') {
+      renderSessions(el.sessionsView, state.sessions);
+    } else if (state.view === 'chat' && state.activeSession) {
+      const data = await api(`/api/session/${state.activeSession.id}/conversation`);
+      renderChat(el.chatView, data.messages || []);
+    } else if (state.view === 'terminal' && state.activeSession) {
+      const data = await api(`/api/session/${state.activeSession.id}/terminal`);
+      const was = nearBottom();
+      el.termView.textContent = data.output || 'No output.';
+      if (was) scrollBottom();
+    }
+    updateFab();
+  } catch {}
+}
+
+async function boot() {
+  await loadSessions();
+
+  // Auto-select if only one live session
+  const live = state.sessions.filter(s => s.status === 'live');
+  if (live.length === 1) {
+    selectSession(live[0]);
+  } else {
+    setView('sessions');
+  }
+}
+
+// ── Input ───────────────────────────────────────────────────────────────────
+async function sendInput(payload) {
+  if (!state.activeSession || state.activeSession.status !== 'live') {
+    showToast('Session is not live.');
+    return;
+  }
+  try {
+    await api(`/api/session/${state.activeSession.id}/input`, {
+      method: 'POST', body: JSON.stringify(payload),
+    });
+    if (navigator.vibrate) navigator.vibrate(8);
+    await refresh();
+  } catch (e) {
+    showToast(e.message);
+  }
+}
+
+async function sendPrompt() {
+  const text = el.composer.value.trim();
+  if (!text) return;
+  await sendInput({ text, enter: true });
+  el.composer.value = '';
+  autoResize();
+}
+
+// ── Voice ───────────────────────────────────────────────────────────────────
+function applyVoice() {
+  const spoken = [...state.voiceFinal, state.voiceInterim].join(' ').replace(/\s+/g, ' ').trim();
+  const base = state.voiceBase;
+  el.composer.value = base ? (base.endsWith(' ') ? base + spoken : base + ' ' + spoken) : spoken;
+  autoResize();
+}
+
+function setMic(active) {
+  state.recording = active;
+  el.micBtn.classList.toggle('live', active);
+  el.micLabel.textContent = active ? 'Listening…' : 'Hold to talk';
+}
+
+function startRec() {
+  if (!Speech || state.recording) return;
+  state.voiceBase = el.composer.value.trimEnd();
+  state.voiceFinal = [];
+  state.voiceInterim = '';
+  const rec = new Speech();
+  rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+  rec.onstart = () => { state.recognition = rec; setMic(true); };
+  rec.onresult = ev => {
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const t = ev.results[i][0].transcript.trim();
+      if (!t) continue;
+      ev.results[i].isFinal ? state.voiceFinal.push(t) : (state.voiceInterim = t);
+    }
+    applyVoice();
+  };
+  rec.onerror = e => showToast(e.error === 'not-allowed' ? 'Mic denied.' : `Voice: ${e.error}`);
+  rec.onend = () => { state.recognition = null; setMic(false); applyVoice(); };
+  rec.start();
+}
+function stopRec() { state.recognition?.stop(); }
+
+// ── Wire up ─────────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t =>
+  t.addEventListener('click', () => setView(t.dataset.view)));
+
+el.backBtn.addEventListener('click', () => {
+  state.activeSession = null;
+  state.lastConvoHash = '';
+  setView('sessions');
+});
+
+el.scrollFab.addEventListener('click', scrollBottom);
+el.sendBtn.addEventListener('click', sendPrompt);
+el.content.addEventListener('scroll', updateFab, { passive: true });
+
+el.composer.addEventListener('input', autoResize);
+el.composer.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendPrompt(); }
+});
+
+document.querySelectorAll('[data-key]').forEach(b =>
+  b.addEventListener('click', () => sendInput({ keys: [b.dataset.key] })));
+
+if (!Speech) {
+  el.micBtn.disabled = true;
+  el.micLabel.textContent = 'Voice unavailable';
+} else {
+  el.micBtn.addEventListener('pointerdown', e => {
+    e.preventDefault(); el.micBtn.setPointerCapture(e.pointerId); startRec();
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture']
+    .forEach(ev => el.micBtn.addEventListener(ev, stopRec));
+}
+
+// ── Boot + polling ──────────────────────────────────────────────────────────
+boot();
+
+let sessionPollCount = 0;
+state.pollTimer = setInterval(async () => {
+  sessionPollCount++;
+  // Refresh session list every 5s (every other tick)
+  if (state.view === 'sessions' || sessionPollCount % 3 === 0) {
+    await loadSessions();
+  }
+  await refresh();
+}, 2000);
+</script>
+</body>
+</html>
