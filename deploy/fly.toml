@@ -1,7 +1,8 @@
 # Fly.io configuration for the agent-warphole VM.
 #
-# This machine stays always-on. Cost is ~$20-30/mo for a shared-cpu-2x
-# with 2GB RAM. Scale up cpu_kind to "performance" if claude feels slow.
+# Fly auto-stops this machine when idle and warphole wakes it on demand.
+# Cost is ~$5-6/mo for a shared-cpu-1x with 1GB RAM (only billed when running).
+# Scale up cpus/memory if claude feels slow.
 #
 # By default this runs without a mounted volume.
 # If you want Claude auth, session data, and synced project files to survive
@@ -14,9 +15,9 @@ primary_region = "sjc"
   dockerfile = "Dockerfile"
 
 [vm]
-  memory   = "2gb"
+  memory   = "1gb"
   cpu_kind = "shared"
-  cpus     = 2
+  cpus     = 1
 
 # No public services — access is via `fly ssh console` only.
 # Fly's wireguard mesh handles auth; no exposed ports needed.
