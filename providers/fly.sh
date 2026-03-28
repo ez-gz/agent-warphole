@@ -40,16 +40,19 @@ _proxy_start() {
   done
 
   if ! nc -z localhost "$_PROXY_PORT" 2>/dev/null; then
-    # Proxy didn't come up — machine is likely stopped. Try to wake it.
+    # Proxy didn't come up — machine is likely stopped. Look up machine IDs
+    # and start each one (fly machine start requires an explicit ID).
     printf 'Starting remote VM…\n' >&2
     kill "$_PROXY_PID" 2>/dev/null; _PROXY_PID=""
-    fly machine start -a "$FLY_APP" --wait-timeout 30 2>/dev/null \
-      || { printf 'Could not start VM. Try: fly status -a %s\n' "${FLY_APP:-}" >&2; exit 1; }
+    fly machine list -a "$FLY_APP" --json 2>/dev/null \
+      | grep -oE '"id":"[0-9a-f]+"' | cut -d'"' -f4 \
+      | while IFS= read -r _mid; do fly machine start "$_mid" -a "$FLY_APP" 2>/dev/null || true; done
+    sleep 3  # let sshd come up before retrying the proxy
     fly proxy "${_PROXY_PORT}:2222" -a "$FLY_APP" &>/dev/null &
     _PROXY_PID=$!
     local j=0
     until nc -z localhost "$_PROXY_PORT" 2>/dev/null; do
-      (( ++j > 20 )) && { printf 'Remote unreachable after start. Try: fly status -a %s\n' "${FLY_APP:-}" >&2; exit 1; }
+      (( ++j > 30 )) && { printf 'Remote unreachable after start. Try: fly status -a %s\n' "${FLY_APP:-}" >&2; exit 1; }
       sleep 0.5
     done
   fi
