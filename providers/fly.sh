@@ -32,12 +32,27 @@ _proxy_start() {
   _PROXY_PID=$!
   trap '_proxy_stop' EXIT
 
-  # Poll until the port accepts connections (max ~5s).
+  # Poll until the port accepts connections (max ~6s before assuming stopped).
   local i=0
   until nc -z localhost "$_PROXY_PORT" 2>/dev/null; do
-    (( ++i > 10 )) && { echo "Fly proxy timed out." >&2; exit 1; }
+    (( ++i > 12 )) && break
     sleep 0.5
   done
+
+  if ! nc -z localhost "$_PROXY_PORT" 2>/dev/null; then
+    # Proxy didn't come up — machine is likely stopped. Try to wake it.
+    printf 'Starting remote VM…\n' >&2
+    kill "$_PROXY_PID" 2>/dev/null; _PROXY_PID=""
+    fly machine start -a "$FLY_APP" --wait-timeout 30 2>/dev/null \
+      || { printf 'Could not start VM. Try: fly status -a %s\n' "${FLY_APP:-}" >&2; exit 1; }
+    fly proxy "${_PROXY_PORT}:2222" -a "$FLY_APP" &>/dev/null &
+    _PROXY_PID=$!
+    local j=0
+    until nc -z localhost "$_PROXY_PORT" 2>/dev/null; do
+      (( ++j > 20 )) && { printf 'Remote unreachable after start. Try: fly status -a %s\n' "${FLY_APP:-}" >&2; exit 1; }
+      sleep 0.5
+    done
+  fi
 }
 
 _proxy_stop() {
@@ -70,13 +85,10 @@ _host_terminal_app() {
 # ── provider interface ────────────────────────────────────────────────────────
 
 provider_ssh() {
-  # `fly ssh console -C` executes a command directly, not via a shell.
-  # Wrap explicitly in bash so callers can pass shell snippets.
-  # 30s timeout: fly's wireguard handshake can hang indefinitely on a cold tunnel.
-  # Returns the exit code — callers decide what failure means.
-  local quoted
-  quoted=$(printf '%s' "$1" | sed "s/'/'\"'\"'/g")
-  _timeout 30 fly ssh console -a "$FLY_APP" -C "bash -lc '$quoted'"
+  # Route through the proxy tunnel (same path as rsync) — avoids a separate
+  # WireGuard handshake for every SSH command.
+  _proxy_start
+  _timeout 30 ssh $_SSH_OPTS root@localhost "bash -lc $(printf '%q' "$1")"
 }
 
 provider_rsync() {
@@ -122,7 +134,7 @@ provider_rsync_pull() {
 provider_attach() {
   local session="$1"
   local tmux_session="warphole-${ACTIVE_AGENT}-${session}"
-  local attach_script="$HOME/.claude/warphole-attach-${ACTIVE_AGENT}-${session}.sh"
+  local attach_script="$HOME/.claude/warphole-attach-${ACTIVE_AGENT}.sh"
   local host_app
   local ghostty_width="${WARPHOLE_GHOSTTY_WINDOW_WIDTH:-140}"
   local ghostty_height="${WARPHOLE_GHOSTTY_WINDOW_HEIGHT:-45}"

@@ -80,7 +80,7 @@ _tmux_session_name() {
 
 _remote_idle_reaper_cmd() {
   local session="$1"
-  local tmux_session timeout_seconds=300 poll_seconds=15
+  local tmux_session timeout_seconds=900 poll_seconds=15
   tmux_session=$(_tmux_session_name "$session")
 
   cat <<EOF
@@ -370,6 +370,19 @@ cmd_go() {
     tmux send-keys -t $tmux_session_q -l -- $resume_cmd_q
     tmux send-keys -t $tmux_session_q Enter
   "
+
+  # Brief pause then snapshot the pane so the user can see if the agent
+  # started cleanly or hit an error before the terminal attach opens.
+  sleep 2
+  local pane_tail=""
+  pane_tail=$(provider_ssh "tmux capture-pane -p -t $tmux_session_q 2>/dev/null | tail -4" 2>/dev/null | tr -d '\r') || true
+  if [[ -n "$pane_tail" ]]; then
+    printf '  remote pane:\n'
+    while IFS= read -r _line; do
+      [[ -n "$_line" ]] && printf '    %s\n' "$_line"
+    done <<< "$pane_tail"
+    printf '\n'
+  fi
 
   _remember_remote_session "$encoded_path" "$session"
   provider_attach "$session"

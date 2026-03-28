@@ -25,6 +25,6 @@ Do not interpolate raw trailing text into the shell unquoted.
 
 If `ARGUMENTS` begins with `suck` and the command succeeds, tell the user the remote state was pulled back locally and the remote tmux session was stopped. Keep the local session alive.
 
-Otherwise, if it succeeds, tell the user their session is live and a terminal tab or window has opened with the remote session. End this local session.
+Otherwise, if it succeeds, tell the user their session is live and a terminal tab or window has opened with the remote session. Tell them they can close this Claude Code window.
 
 If it fails, show the error and keep the local session alive.

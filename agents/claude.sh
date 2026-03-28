@@ -52,7 +52,7 @@ agent_resume_cmd() {
   # that auth or other claude invocations may have created on the remote.
   printf -v session_file '%q' "$remote_home/.claude/projects/${encoded_path}/${uuid}.jsonl"
   printf -v project_path '%q' "$PWD"
-  claude_cmd="claude --dangerously-skip-permissions --continue"
+  claude_cmd="claude --dangerously-skip-permissions --continue $uuid"
 
   if [[ -n "$msg" ]]; then
     printf -v claude_cmd '%s %q' "$claude_cmd" "$msg"
